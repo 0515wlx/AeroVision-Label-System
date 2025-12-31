@@ -1,14 +1,21 @@
 <template>
   <div class="bounding-box-container" ref="containerRef">
-    <canvas
-      ref="canvasRef"
-      :width="canvasWidth"
-      :height="canvasHeight"
-      @mousedown="handleMouseDown"
-      @mousemove="handleMouseMove"
-      @mouseup="handleMouseUp"
-      @mouseleave="handleMouseUp"
-    ></canvas>
+    <div class="canvas-wrapper">
+      <canvas
+        ref="canvasRef"
+        :width="canvasWidth"
+        :height="canvasHeight"
+        @mousedown="handleMouseDown"
+        @mousemove="handleMouseMove"
+        @mouseup="handleMouseUp"
+        @mouseleave="handleMouseUp"
+        @wheel.prevent="handleWheel"
+        @contextmenu.prevent
+      ></canvas>
+      <div class="zoom-info">
+        {{ Math.round(zoomLevel * 100) }}%
+      </div>
+    </div>
     <div class="box-legend">
       <span class="legend-item airplane">
         <span class="legend-color"></span>
@@ -26,13 +33,22 @@
       <button @click="setMode('registration')" :class="{ active: currentMode === 'registration' }">
         绘制注册号
       </button>
+      <button @click="setMode('pan')" :class="{ active: currentMode === 'pan' }">
+        平移
+      </button>
+      <button @click="resetView" class="reset-btn">
+        重置视图
+      </button>
       <button @click="clearBoxes" class="clear-btn">清除全部</button>
+    </div>
+    <div class="zoom-hint">
+      滚轮缩放 | 中键/右键拖动平移 | 双击重置
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, nextTick } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 
 const props = defineProps({
   imageSrc: String,
@@ -49,18 +65,34 @@ const canvasRef = ref(null)
 const canvasWidth = ref(800)
 const canvasHeight = ref(600)
 
-const currentMode = ref('airplane') // 'airplane' | 'registration'
+const currentMode = ref('airplane') // 'airplane' | 'registration' | 'pan'
 const isDrawing = ref(false)
+const isPanning = ref(false)
 const startPoint = ref(null)
 const currentPoint = ref(null)
+const lastPanPoint = ref(null)
 
 const airplaneBox = ref(props.initialAirplaneBox || null)
 const registrationBox = ref(props.initialRegistrationBox || null)
 
 const image = ref(null)
+
+// 基础缩放（适应画布）
+const baseScale = ref(1)
+// 用户缩放级别
+const zoomLevel = ref(1)
+// 实际缩放 = baseScale * zoomLevel
 const scale = ref(1)
-const offsetX = ref(0)
-const offsetY = ref(0)
+// 平移偏移
+const panX = ref(0)
+const panY = ref(0)
+// 图片在画布中的偏移（居中用）
+const baseOffsetX = ref(0)
+const baseOffsetY = ref(0)
+
+// 缩放限制
+const MIN_ZOOM = 0.5
+const MAX_ZOOM = 5
 
 // 加载图片
 const loadImage = () => {
@@ -79,11 +111,14 @@ const loadImage = () => {
 
     const scaleX = containerWidth / img.width
     const scaleY = containerHeight / img.height
-    scale.value = Math.min(scaleX, scaleY, 1)
+    baseScale.value = Math.min(scaleX, scaleY, 1)
 
-    // 居中显示
-    offsetX.value = (containerWidth - img.width * scale.value) / 2
-    offsetY.value = (containerHeight - img.height * scale.value) / 2
+    // 重置缩放和平移
+    zoomLevel.value = 1
+    panX.value = 0
+    panY.value = 0
+
+    updateScale()
 
     nextTick(() => {
       draw()
@@ -91,6 +126,21 @@ const loadImage = () => {
   }
   img.src = props.imageSrc
 }
+
+// 更新实际缩放
+const updateScale = () => {
+  scale.value = baseScale.value * zoomLevel.value
+
+  // 计算居中偏移
+  const containerWidth = canvasWidth.value
+  const containerHeight = canvasHeight.value
+  baseOffsetX.value = (containerWidth - image.value.width * scale.value) / 2
+  baseOffsetY.value = (containerHeight - image.value.height * scale.value) / 2
+}
+
+// 获取最终偏移（基础偏移 + 平移）
+const getOffsetX = () => baseOffsetX.value + panX.value
+const getOffsetY = () => baseOffsetY.value + panY.value
 
 // 绘制画布
 const draw = () => {
@@ -100,12 +150,19 @@ const draw = () => {
   const ctx = canvas.getContext('2d')
   ctx.clearRect(0, 0, canvasWidth.value, canvasHeight.value)
 
+  // 绘制背景格子（表示可视区域外）
+  ctx.fillStyle = '#0a0a0a'
+  ctx.fillRect(0, 0, canvasWidth.value, canvasHeight.value)
+
   // 绘制图片
   if (image.value) {
+    const offsetX = getOffsetX()
+    const offsetY = getOffsetY()
+
     ctx.drawImage(
       image.value,
-      offsetX.value,
-      offsetY.value,
+      offsetX,
+      offsetY,
       image.value.width * scale.value,
       image.value.height * scale.value
     )
@@ -122,7 +179,7 @@ const draw = () => {
   }
 
   // 绘制当前正在绘制的框
-  if (isDrawing.value && startPoint.value && currentPoint.value) {
+  if (isDrawing.value && startPoint.value && currentPoint.value && currentMode.value !== 'pan') {
     const color = currentMode.value === 'airplane' ? '#00ff00' : '#ff6600'
     drawTempBox(ctx, startPoint.value, currentPoint.value, color)
   }
@@ -130,10 +187,13 @@ const draw = () => {
 
 // 绘制矩形框
 const drawBox = (ctx, box, color, label) => {
-  const x1 = box.x1 * scale.value + offsetX.value
-  const y1 = box.y1 * scale.value + offsetY.value
-  const x2 = box.x2 * scale.value + offsetX.value
-  const y2 = box.y2 * scale.value + offsetY.value
+  const offsetX = getOffsetX()
+  const offsetY = getOffsetY()
+
+  const x1 = box.x1 * scale.value + offsetX
+  const y1 = box.y1 * scale.value + offsetY
+  const x2 = box.x2 * scale.value + offsetX
+  const y2 = box.y2 * scale.value + offsetY
 
   ctx.strokeStyle = color
   ctx.lineWidth = 2
@@ -160,9 +220,39 @@ const drawTempBox = (ctx, start, end, color) => {
 
 // 将画布坐标转换为图片坐标
 const canvasToImage = (canvasX, canvasY) => {
-  const imageX = (canvasX - offsetX.value) / scale.value
-  const imageY = (canvasY - offsetY.value) / scale.value
+  const offsetX = getOffsetX()
+  const offsetY = getOffsetY()
+  const imageX = (canvasX - offsetX) / scale.value
+  const imageY = (canvasY - offsetY) / scale.value
   return { x: imageX, y: imageY }
+}
+
+// 滚轮缩放
+const handleWheel = (e) => {
+  const rect = canvasRef.value.getBoundingClientRect()
+  const mouseX = e.clientX - rect.left
+  const mouseY = e.clientY - rect.top
+
+  // 缩放前的图片坐标
+  const beforeZoom = canvasToImage(mouseX, mouseY)
+
+  // 计算新的缩放级别
+  const delta = e.deltaY > 0 ? 0.9 : 1.1
+  const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel.value * delta))
+
+  if (newZoom !== zoomLevel.value) {
+    zoomLevel.value = newZoom
+    updateScale()
+
+    // 缩放后的图片坐标
+    const afterZoom = canvasToImage(mouseX, mouseY)
+
+    // 调整平移以保持鼠标位置不变
+    panX.value += (afterZoom.x - beforeZoom.x) * scale.value
+    panY.value += (afterZoom.y - beforeZoom.y) * scale.value
+
+    draw()
+  }
 }
 
 // 鼠标事件处理
@@ -171,12 +261,34 @@ const handleMouseDown = (e) => {
   const x = e.clientX - rect.left
   const y = e.clientY - rect.top
 
-  isDrawing.value = true
-  startPoint.value = { x, y }
-  currentPoint.value = { x, y }
+  // 中键或右键开始平移
+  if (e.button === 1 || e.button === 2 || currentMode.value === 'pan') {
+    isPanning.value = true
+    lastPanPoint.value = { x: e.clientX, y: e.clientY }
+    return
+  }
+
+  // 左键绘制
+  if (e.button === 0 && currentMode.value !== 'pan') {
+    isDrawing.value = true
+    startPoint.value = { x, y }
+    currentPoint.value = { x, y }
+  }
 }
 
 const handleMouseMove = (e) => {
+  // 平移模式
+  if (isPanning.value && lastPanPoint.value) {
+    const dx = e.clientX - lastPanPoint.value.x
+    const dy = e.clientY - lastPanPoint.value.y
+    panX.value += dx
+    panY.value += dy
+    lastPanPoint.value = { x: e.clientX, y: e.clientY }
+    draw()
+    return
+  }
+
+  // 绘制模式
   if (!isDrawing.value) return
 
   const rect = canvasRef.value.getBoundingClientRect()
@@ -187,7 +299,14 @@ const handleMouseMove = (e) => {
   draw()
 }
 
-const handleMouseUp = () => {
+const handleMouseUp = (e) => {
+  // 结束平移
+  if (isPanning.value) {
+    isPanning.value = false
+    lastPanPoint.value = null
+    return
+  }
+
   if (!isDrawing.value || !startPoint.value || !currentPoint.value) {
     isDrawing.value = false
     return
@@ -213,7 +332,7 @@ const handleMouseUp = () => {
     if (currentMode.value === 'airplane') {
       airplaneBox.value = box
       emit('update:airplaneBox', box)
-    } else {
+    } else if (currentMode.value === 'registration') {
       registrationBox.value = box
       emit('update:registrationBox', box)
     }
@@ -225,9 +344,25 @@ const handleMouseUp = () => {
   draw()
 }
 
+// 双击重置视图
+const handleDoubleClick = () => {
+  resetView()
+}
+
 // 设置绘制模式
 const setMode = (mode) => {
   currentMode.value = mode
+}
+
+// 重置视图
+const resetView = () => {
+  zoomLevel.value = 1
+  panX.value = 0
+  panY.value = 0
+  if (image.value) {
+    updateScale()
+  }
+  draw()
 }
 
 // 清除所有框
@@ -255,7 +390,8 @@ const calculateArea = (box, imgWidth, imgHeight) => {
 defineExpose({
   calculateArea,
   getAirplaneBox: () => airplaneBox.value,
-  getRegistrationBox: () => registrationBox.value
+  getRegistrationBox: () => registrationBox.value,
+  resetView
 })
 
 // 监听图片变化
@@ -276,8 +412,34 @@ watch(() => props.initialRegistrationBox, (val) => {
   draw()
 })
 
+// 键盘事件（空格键切换平移模式）
+let previousMode = 'airplane'
+const handleKeyDown = (e) => {
+  if (e.code === 'Space' && currentMode.value !== 'pan') {
+    e.preventDefault()
+    previousMode = currentMode.value
+    currentMode.value = 'pan'
+  }
+}
+
+const handleKeyUp = (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault()
+    currentMode.value = previousMode
+  }
+}
+
 onMounted(() => {
   loadImage()
+  canvasRef.value?.addEventListener('dblclick', handleDoubleClick)
+  window.addEventListener('keydown', handleKeyDown)
+  window.addEventListener('keyup', handleKeyUp)
+})
+
+onUnmounted(() => {
+  canvasRef.value?.removeEventListener('dblclick', handleDoubleClick)
+  window.removeEventListener('keydown', handleKeyDown)
+  window.removeEventListener('keyup', handleKeyUp)
 })
 </script>
 
@@ -287,11 +449,27 @@ onMounted(() => {
   width: 100%;
 }
 
+.canvas-wrapper {
+  position: relative;
+}
+
 canvas {
   display: block;
   background: #1a1a1a;
   border: 1px solid #333;
   cursor: crosshair;
+}
+
+.zoom-info {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 12px;
+  border-radius: 4px;
+  pointer-events: none;
 }
 
 .box-legend {
@@ -346,6 +524,15 @@ canvas {
   border-color: #4a90d9;
 }
 
+.box-controls .reset-btn {
+  background: #555;
+  border-color: #666;
+}
+
+.box-controls .reset-btn:hover {
+  background: #666;
+}
+
 .box-controls .clear-btn {
   margin-left: auto;
   background: #aa3333;
@@ -354,5 +541,11 @@ canvas {
 
 .box-controls .clear-btn:hover {
   background: #cc4444;
+}
+
+.zoom-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #666;
 }
 </style>
