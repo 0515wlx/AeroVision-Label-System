@@ -1,6 +1,16 @@
 <template>
   <div class="stats-panel">
-    <h3>标注统计</h3>
+    <div class="stats-header">
+      <h3>标注统计</h3>
+      <div class="header-actions">
+        <button @click="exportAirlines" class="export-btn airline">
+          导出航司 JSON
+        </button>
+        <button @click="exportAircraftTypes" class="export-btn type">
+          导出机型 JSON
+        </button>
+      </div>
+    </div>
 
     <div v-if="loading" class="loading">
       加载中...
@@ -79,7 +89,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getStats } from '../api'
+import { getStats, exportAirlines, exportAircraftTypes } from '../api'
 
 const loading = ref(true)
 const stats = ref({
@@ -166,10 +176,55 @@ onMounted(() => {
   overflow: auto;
 }
 
+.stats-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
 .stats-panel h3 {
-  margin: 0 0 20px 0;
+  margin: 0;
   color: #fff;
   font-size: 18px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.export-btn {
+  padding: 8px 16px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #2a2a2a;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+}
+
+.export-btn:hover {
+  background: #3a3a3a;
+}
+
+.export-btn.airline {
+  background: #ff9800;
+  border-color: #ffa726;
+}
+
+.export-btn.airline:hover {
+  background: #ffa726;
+}
+
+.export-btn.type {
+  background: #4a90d9;
+  border-color: #6aaced;
+}
+
+.export-btn.type:hover {
+  background: #6aaced;
 }
 
 .loading {

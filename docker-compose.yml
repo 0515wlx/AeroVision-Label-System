@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  aerovision-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aerovision-label
+    volumes:
+      - ./images:/app/images
+      - ./labeled:/app/labeled
+      - ./data:/app/data
+      - ./labels.db:/app/labels.db
+    environment:
+      - FLASK_ENV=production
+      - IMAGES_DIR=/app/images
+      - LABELED_DIR=/app/labeled
+      - DATABASE_PATH=/app/data/labels.db
+    restart: unless-stopped
+    networks:
+      - aerovision-network
+
+networks:
+  aerovision-network:
+    driver: bridge
