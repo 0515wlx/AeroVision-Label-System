@@ -73,6 +73,37 @@ class Database:
             )
         ''')
 
+        # 创建跳过（废图）记录表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS skipped_images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL UNIQUE,
+                skipped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # 兼容性处理：如果表结构不正确（有 user_id 字段），则重建表
+        cursor.execute("PRAGMA table_info(skipped_images)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if 'user_id' in columns:
+            # 备份数据
+            cursor.execute("SELECT filename FROM skipped_images")
+            old_data = cursor.fetchall()
+            # 删除旧表
+            cursor.execute("DROP TABLE skipped_images")
+            # 创建新表
+            cursor.execute('''
+                CREATE TABLE skipped_images (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    filename TEXT NOT NULL UNIQUE,
+                    skipped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            # 恢复数据
+            for row in old_data:
+                cursor.execute("INSERT INTO skipped_images (filename) VALUES (?)", (row[0],))
+            conn.commit()
+
         conn.commit()
         conn.close()
 
@@ -259,29 +290,80 @@ class Database:
             'items': [dict(row) for row in rows]
         }
 
-    def get_all_labels_for_export(self) -> list:
-        """获取所有标注数据用于导出"""
+    def get_all_labels_for_export(self, start_id: int = None, end_id: int = None) -> list:
+        """获取标注数据用于导出，支持ID范围筛选"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            SELECT file_name, type_id, type_name, airline_id, airline_name,
-                   clarity, block, registration
-            FROM labels
-            ORDER BY file_name
-        ''')
+
+        if start_id is not None and end_id is not None:
+            cursor.execute('''
+                SELECT file_name, type_id, type_name, airline_id, airline_name,
+                       clarity, block, registration
+                FROM labels
+                WHERE id >= ? AND id <= ?
+                ORDER BY file_name
+            ''', (start_id, end_id))
+        elif start_id is not None:
+            cursor.execute('''
+                SELECT file_name, type_id, type_name, airline_id, airline_name,
+                       clarity, block, registration
+                FROM labels
+                WHERE id >= ?
+                ORDER BY file_name
+            ''', (start_id,))
+        elif end_id is not None:
+            cursor.execute('''
+                SELECT file_name, type_id, type_name, airline_id, airline_name,
+                       clarity, block, registration
+                FROM labels
+                WHERE id <= ?
+                ORDER BY file_name
+            ''', (end_id,))
+        else:
+            cursor.execute('''
+                SELECT file_name, type_id, type_name, airline_id, airline_name,
+                       clarity, block, registration
+                FROM labels
+                ORDER BY file_name
+            ''')
+
         rows = cursor.fetchall()
         conn.close()
         return [dict(row) for row in rows]
 
-    def get_all_labels_with_area(self) -> list:
-        """获取所有标注数据（包含区域信息）用于 YOLO 导出"""
+    def get_all_labels_with_area(self, start_id: int = None, end_id: int = None) -> list:
+        """获取标注数据（包含区域信息）用于 YOLO 导出，支持ID范围筛选"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            SELECT file_name, registration_area
-            FROM labels
-            ORDER BY file_name
-        ''')
+
+        if start_id is not None and end_id is not None:
+            cursor.execute('''
+                SELECT file_name, registration_area
+                FROM labels
+                WHERE id >= ? AND id <= ?
+                ORDER BY file_name
+            ''', (start_id, end_id))
+        elif start_id is not None:
+            cursor.execute('''
+                SELECT file_name, registration_area
+                FROM labels
+                WHERE id >= ?
+                ORDER BY file_name
+            ''', (start_id,))
+        elif end_id is not None:
+            cursor.execute('''
+                SELECT file_name, registration_area
+                FROM labels
+                WHERE id <= ?
+                ORDER BY file_name
+            ''', (end_id,))
+        else:
+            cursor.execute('''
+                SELECT file_name, registration_area
+                FROM labels
+                ORDER BY file_name
+            ''')
+
         rows = cursor.fetchall()
         conn.close()
         return [dict(row) for row in rows]
@@ -477,4 +559,32 @@ class Database:
         row = cursor.fetchone()
         conn.close()
         return dict(row) if row else None
+
+    # ==================== 跳过（废图）操作 ====================
+
+    def get_skipped_filenames(self) -> set:
+        """获取所有被跳过的文件名集合"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT filename FROM skipped_images')
+        rows = cursor.fetchall()
+        conn.close()
+        return {row['filename'] for row in rows}
+
+    def skip_image(self, filename: str) -> bool:
+        """将图片标记为废图（跳过）"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                'INSERT INTO skipped_images (filename) VALUES (?)',
+                (filename,)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.IntegrityError:
+            # 已经被跳过
+            conn.close()
+            return False
 

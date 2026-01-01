@@ -94,14 +94,23 @@
       </div>
     </div>
 
+    <!-- 错误信息 -->
+    <div v-if="error" class="error-message">
+      {{ error }}
+    </div>
+
     <!-- 提交按钮 -->
     <div class="form-actions">
       <button type="submit" :disabled="!isValid || loading" class="submit-btn">
         {{ loading ? '保存中...' : '保存标注' }}
       </button>
-      <button type="button" @click="handleSkipAsInvalid" class="skip-btn">
-        跳过此图
+      <button type="button" @click="handleSkip" class="skip-btn">
+        跳过
       </button>
+      <button type="button" @click="handleSkipAsInvalid" class="skip-invalid-btn">
+        废图
+      </button>
+    </div>
   </form>
 </template>
 
@@ -114,10 +123,11 @@ const props = defineProps({
   initialData: Object
 })
 
-const emit = defineEmits(['submit', 'skip'])
-const emit = defineEmits(['submit', 'skipAsInvalid'])
-const airlines = ref([])
 const emit = defineEmits(['submit', 'skip', 'skipAsInvalid'])
+
+const airlines = ref([])
+const aircraftTypes = ref([])
+const loading = ref(false)
 const error = ref('')
 
 const form = ref({
@@ -257,17 +267,22 @@ const handleSubmit = async () => {
 }
 
 // 跳过
-// 跳过（标记为废图）
+const handleSkip = () => {
+  emit('skip')
+}
+
+// 标记为废图并跳过
 const handleSkipAsInvalid = () => {
   emit('skipAsInvalid')
+}
 
 // 重置表单
-const resetForm = () => {
+const reset = () => {
   form.value = {
-// 标记为废图并跳过
     airlineId: '',
-  emit('skipAsInvalid')
+    airlineName: '',
     typeId: '',
+    typeName: '',
     registration: '',
     clarity: 0.8,
     block: 0
@@ -291,7 +306,7 @@ watch(() => props.initialData, (data) => {
 }, { immediate: true })
 
 // 暴露方法
-defineExpose({ resetForm })
+defineExpose({ reset })
 
 onMounted(() => {
   loadData()
@@ -391,15 +406,19 @@ onMounted(() => {
 
 .area-info .area-display div {
   color: #888;
-  margin-bottom: 6px;
-}
-
-.area-info .area-display div:last-child {
-  margin-bottom: 0;
 }
 
 .area-info .area-display div.valid {
   color: #4caf50;
+}
+
+.error-message {
+  margin-top: 16px;
+  padding: 12px;
+  background: #442222;
+  border: 1px solid #663333;
+  border-radius: 4px;
+  color: #ff6666;
 }
 
 .form-actions {
@@ -430,7 +449,7 @@ onMounted(() => {
 }
 
 .skip-btn {
-  padding: 12px 20px;
+  padding: 12px 16px;
   border: 1px solid #666;
   border-radius: 4px;
   background: transparent;
@@ -444,11 +463,18 @@ onMounted(() => {
   color: #fff;
 }
 
-.error-message {
-  margin-top: 16px;
-  padding: 12px;
-  background: #442222;
-  border: 1px solid #663333;
+.skip-invalid-btn {
+  padding: 12px 16px;
+  border: 1px solid #aa3333;
   border-radius: 4px;
+  background: transparent;
   color: #ff6666;
+  cursor: pointer;
+  transition: all 0.2s;
+}
 
+.skip-invalid-btn:hover {
+  background: #aa3333;
+  color: #fff;
+}
+</style>

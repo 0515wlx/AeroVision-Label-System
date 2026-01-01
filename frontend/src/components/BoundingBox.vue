@@ -22,7 +22,7 @@
         注册号区域 ({{ registrationBox ? '已绘制' : '未绘制' }})
       </span>
     </div>
-    <div class="box-controls">
+    <div v-if="!readonly" class="box-controls">
       <button @click="setMode('registration')" :class="{ active: currentMode === 'registration' }">
         绘制注册号
       </button>
@@ -33,6 +33,14 @@
         重置视图
       </button>
       <button @click="clearBoxes" class="clear-btn">清除</button>
+    </div>
+    <div v-else class="box-controls">
+      <button @click="setMode('pan')" :class="{ active: currentMode === 'pan' }">
+        平移
+      </button>
+      <button @click="resetView" class="reset-btn">
+        重置视图
+      </button>
     </div>
     <div class="zoom-hint">
       滚轮缩放 | 中键/右键拖动平移 | 双击重置
@@ -47,7 +55,11 @@ const props = defineProps({
   imageSrc: String,
   imageWidth: Number,
   imageHeight: Number,
-  initialRegistrationBox: Object
+  initialRegistrationBox: Object,
+  readonly: {
+    type: Boolean,
+    default: false
+  }
 })
 
 const emit = defineEmits(['update:registrationBox'])
@@ -252,6 +264,9 @@ const handleMouseDown = (e) => {
     lastPanPoint.value = { x: e.clientX, y: e.clientY }
     return
   }
+
+  // readonly 模式下不允许绘制
+  if (props.readonly) return
 
   // 左键绘制
   if (e.button === 0 && currentMode.value !== 'pan') {

@@ -29,8 +29,22 @@ export const getLabel = (id) => api.get(`/labels/${id}`)
 export const createLabel = (data) => api.post('/labels', data)
 export const updateLabel = (id, data) => api.put(`/labels/${id}`, data)
 export const deleteLabel = (id) => api.delete(`/labels/${id}`)
-export const exportLabels = () => window.open('/api/labels/export', '_blank')
-export const exportYoloLabels = () => window.open('/api/labels/export-yolo', '_blank')
+export const exportLabels = (startId, endId) => {
+  let url = '/api/labels/export'
+  const params = []
+  if (startId) params.push(`start_id=${startId}`)
+  if (endId) params.push(`end_id=${endId}`)
+  if (params.length > 0) url += '?' + params.join('&')
+  window.open(url, '_blank')
+}
+export const exportYoloLabels = (startId, endId) => {
+  let url = '/api/labels/export-yolo'
+  const params = []
+  if (startId) params.push(`start_id=${startId}`)
+  if (endId) params.push(`end_id=${endId}`)
+  if (params.length > 0) url += '?' + params.join('&')
+  window.open(url, '_blank')
+}
 
 // 航司相关
 export const getAirlines = () => api.get('/airlines')
@@ -60,7 +74,7 @@ export const skipImage = (filename) =>
   api.post('/images/skip', { filename, user_id: userId })
 
 // 导出配置
-export const exportAirlines = () => window.open('/api/export/airlines', '_blank')
-export const exportAircraftTypes = () => window.open('/api/export/aircraft-types', '_blank')
+export const exportAirlines = () => window.open('/api/airlines/export', '_blank')
+export const exportAircraftTypes = () => window.open('/api/aircraft-types/export', '_blank')
 
 export default api

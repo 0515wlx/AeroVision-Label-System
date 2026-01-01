@@ -95,6 +95,39 @@ def get_labeled_image(filename: str):
     return jsonify({'error': '图片不存在'}), 404
 
 
+@app.route('/api/images/skip', methods=['POST'])
+def skip_image_handler():
+    """将图片标记为废图（跳过）"""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({'error': '请求数据为空'}), 400
+
+        filename = data.get('filename')
+
+        if not filename:
+            return jsonify({'error': '缺少 filename 参数'}), 400
+
+        # 检查图片是否存在
+        file_path = os.path.join(IMAGES_DIR, filename)
+
+        if not os.path.exists(file_path):
+            return jsonify({'error': '图片不存在'}), 404
+
+        success = db.skip_image(filename)
+
+        # 无论是新标记还是已经标记过，都返回成功（幂等性）
+        if success:
+            return jsonify({'message': '已标记为废图', 'filename': filename})
+        else:
+            # 图片已经被标记过，这也是成功的操作
+            return jsonify({'message': '图片已标记为废图', 'filename': filename, 'already_skipped': True})
+    except Exception as e:
+        print(f"[ERROR] Skip image error: {str(e)}")
+        return jsonify({'error': f'服务器错误: {str(e)}'}), 500
+
+
 # ==================== 标注相关 API ====================
 
 @app.route('/api/labels', methods=['GET'])
@@ -203,8 +236,11 @@ def delete_label(label_id: int):
 
 @app.route('/api/labels/export', methods=['GET'])
 def export_labels():
-    """导出标注数据为 CSV"""
-    labels = db.get_all_labels_for_export()
+    """导出标注数据为 CSV，支持ID范围筛选"""
+    start_id = request.args.get('start_id', type=int)
+    end_id = request.args.get('end_id', type=int)
+
+    labels = db.get_all_labels_for_export(start_id, end_id)
 
     # 获取所有机型和航司的映射（code -> id）
     aircraft_types = {t['code']: t['id'] for t in db.get_aircraft_types()}
@@ -247,8 +283,11 @@ def export_labels():
 
 @app.route('/api/labels/export-yolo', methods=['GET'])
 def export_yolo_labels():
-    """导出 YOLO 格式标注文件（zip 包含所有 txt 文件）"""
-    labels = db.get_all_labels_with_area()
+    """导出 YOLO 格式标注文件（zip 包含所有 txt 文件），支持ID范围筛选"""
+    start_id = request.args.get('start_id', type=int)
+    end_id = request.args.get('end_id', type=int)
+
+    labels = db.get_all_labels_with_area(start_id, end_id)
 
     # 创建内存中的 zip 文件
     zip_buffer = BytesIO()

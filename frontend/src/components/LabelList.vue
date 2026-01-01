@@ -27,6 +27,7 @@
       <table class="labels-table">
         <thead>
           <tr>
+            <th>ID</th>
             <th>文件名</th>
             <th>机型</th>
             <th>航司</th>
@@ -38,6 +39,7 @@
         </thead>
         <tbody>
           <tr v-for="label in labels" :key="label.id">
+            <td class="id-col">{{ label.id }}</td>
             <td class="filename">{{ label.file_name }}</td>
             <td>{{ label.type_id }}</td>
             <td>{{ label.airline_id }}</td>
@@ -77,9 +79,25 @@
         </div>
 
         <div class="modal-body">
-          <!-- 图片预览 -->
-          <div class="preview-image">
-            <img :src="getLabeledImageUrl(selectedLabel.file_name)" :alt="selectedLabel.file_name" />
+          <!-- 图片预览（查看模式使用 BoundingBox 只读显示，编辑模式可修改） -->
+          <div class="preview-section">
+            <BoundingBox
+              v-if="modalMode === 'view'"
+              :imageSrc="getLabeledImageUrl(selectedLabel.file_name)"
+              :imageWidth="imageSize.width"
+              :imageHeight="imageSize.height"
+              :initialRegistrationBox="parseYoloArea(selectedLabel.registration_area, imageSize.width, imageSize.height)"
+              :readonly="true"
+            />
+            <BoundingBox
+              v-else
+              ref="boundingBoxRef"
+              :imageSrc="getLabeledImageUrl(selectedLabel.file_name)"
+              :imageWidth="imageSize.width"
+              :imageHeight="imageSize.height"
+              :initialRegistrationBox="editForm.registrationBox"
+              @update:registrationBox="onBoxUpdate"
+            />
           </div>
 
           <!-- 标注信息 -->
@@ -145,6 +163,10 @@
                 <label>遮挡度: {{ editForm.block.toFixed(2) }}</label>
                 <input type="range" v-model.number="editForm.block" min="0" max="1" step="0.01" />
               </div>
+              <div class="info-row">
+                <label>注册号区域</label>
+                <span class="area">{{ editForm.registrationArea }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -174,11 +196,53 @@
         </div>
       </div>
     </div>
+
+    <!-- 导出选项对话框 -->
+    <div v-if="showExportModal" class="modal-overlay" @click.self="closeExportModal">
+      <div class="modal export-modal">
+        <div class="modal-header">
+          <h3>导出选项</h3>
+          <button @click="closeExportModal" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="export-options">
+            <div class="option-group">
+              <label class="radio-label">
+                <input type="radio" v-model="exportRange" value="all" />
+                导出全部 (共 {{ total }} 条记录)
+              </label>
+            </div>
+            <div class="option-group">
+              <label class="radio-label">
+                <input type="radio" v-model="exportRange" value="range" />
+                按 ID 范围导出
+              </label>
+              <div v-if="exportRange === 'range'" class="range-inputs">
+                <div class="input-group">
+                  <label>起始 ID</label>
+                  <input type="number" v-model.number="exportStartId" min="1" placeholder="起始ID" />
+                </div>
+                <div class="input-group">
+                  <label>结束 ID</label>
+                  <input type="number" v-model.number="exportEndId" min="1" placeholder="结束ID" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="doExport" class="export-btn">
+            {{ exportType === 'csv' ? '导出 CSV' : '导出 YOLO' }}
+          </button>
+          <button @click="closeExportModal" class="cancel-btn">取消</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import {
   getLabels,
   getLabel,
@@ -190,6 +254,7 @@ import {
   getAirlines,
   getAircraftTypes
 } from '../api'
+import BoundingBox from './BoundingBox.vue'
 
 const emit = defineEmits(['refresh'])
 
@@ -210,13 +275,63 @@ const selectedLabel = ref(null)
 const editForm = ref({})
 const saving = ref(false)
 
+// BoundingBox 组件引用
+const boundingBoxRef = ref(null)
+// 图片尺寸
+const imageSize = ref({ width: 1920, height: 1080 })
+
 // 删除确认
 const showDeleteConfirm = ref(false)
 const labelToDelete = ref(null)
 const deleting = ref(false)
 
+// 导出选项
+const showExportModal = ref(false)
+const exportType = ref('csv') // 'csv' | 'yolo'
+const exportRange = ref('all') // 'all' | 'range'
+const exportStartId = ref(null)
+const exportEndId = ref(null)
+
 // 总页数
 const totalPages = computed(() => Math.ceil(total.value / perPage.value))
+
+// 解析 YOLO 格式区域字符串为 box 对象
+const parseYoloArea = (areaStr, imgWidth, imgHeight) => {
+  if (!areaStr) return null
+  const parts = areaStr.trim().split(' ').map(parseFloat)
+  if (parts.length !== 4) return null
+  const [xCenter, yCenter, width, height] = parts
+  return {
+    x1: (xCenter - width / 2) * imgWidth,
+    y1: (yCenter - height / 2) * imgHeight,
+    x2: (xCenter + width / 2) * imgWidth,
+    y2: (yCenter + height / 2) * imgHeight
+  }
+}
+
+// 将 box 对象转换为 YOLO 格式区域字符串
+const boxToYoloArea = (box, imgWidth, imgHeight) => {
+  if (!box) return ''
+  const xCenter = ((box.x1 + box.x2) / 2) / imgWidth
+  const yCenter = ((box.y1 + box.y2) / 2) / imgHeight
+  const width = (box.x2 - box.x1) / imgWidth
+  const height = (box.y2 - box.y1) / imgHeight
+  return `${xCenter.toFixed(6)} ${yCenter.toFixed(6)} ${width.toFixed(6)} ${height.toFixed(6)}`
+}
+
+// 加载图片获取实际尺寸
+const loadImageSize = (src) => {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      resolve({ width: img.width, height: img.height })
+    }
+    img.onerror = () => {
+      resolve({ width: 1920, height: 1080 })
+    }
+    img.src = src
+  })
+}
 
 // 加载标注列表
 const loadLabels = async () => {
@@ -253,26 +368,67 @@ const goToPage = (page) => {
   loadLabels()
 }
 
+// 打开导出对话框
+const openExportModal = (type) => {
+  exportType.value = type
+  exportRange.value = 'all'
+  exportStartId.value = null
+  exportEndId.value = null
+  showExportModal.value = true
+}
+
+// 关闭导出对话框
+const closeExportModal = () => {
+  showExportModal.value = false
+}
+
+// 执行导出
+const doExport = () => {
+  const startId = exportRange.value === 'range' ? exportStartId.value : null
+  const endId = exportRange.value === 'range' ? exportEndId.value : null
+
+  if (exportType.value === 'csv') {
+    exportLabels(startId, endId)
+  } else {
+    exportYoloLabels(startId, endId)
+  }
+  closeExportModal()
+}
+
 // 导出 CSV
 const exportCsv = () => {
-  exportLabels()
+  openExportModal('csv')
 }
 
 // 导出 YOLO 格式
 const exportYolo = () => {
-  exportYoloLabels()
+  openExportModal('yolo')
 }
 
 // 查看标注
-const viewLabel = (label) => {
+const viewLabel = async (label) => {
   selectedLabel.value = label
   modalMode.value = 'view'
   showModal.value = true
+
+  // 加载图片尺寸
+  const imgSrc = getLabeledImageUrl(label.file_name)
+  const size = await loadImageSize(imgSrc)
+  imageSize.value = size
 }
 
 // 编辑标注
-const editLabel = (label) => {
+const editLabel = async (label) => {
   selectedLabel.value = label
+
+  // 加载图片尺寸
+  const imgSrc = getLabeledImageUrl(label.file_name)
+  const size = await loadImageSize(imgSrc)
+  imageSize.value = size
+
+  // 解析区域
+  const box = parseYoloArea(label.registration_area, size.width, size.height)
+
   editForm.value = {
     typeId: label.type_id,
     typeName: label.type_name,
@@ -281,7 +437,8 @@ const editLabel = (label) => {
     registration: label.registration,
     clarity: label.clarity,
     block: label.block,
-    registrationArea: label.registration_area
+    registrationArea: label.registration_area,
+    registrationBox: box
   }
   modalMode.value = 'edit'
   showModal.value = true
@@ -299,10 +456,29 @@ const onAirlineChange = () => {
   editForm.value.airlineName = airline?.name || ''
 }
 
+// 画线框更新
+const onBoxUpdate = (box) => {
+  editForm.value.registrationBox = box
+  if (box) {
+    editForm.value.registrationArea = boxToYoloArea(box, imageSize.value.width, imageSize.value.height)
+  } else {
+    editForm.value.registrationArea = ''
+  }
+}
+
 // 保存编辑
 const saveEdit = async () => {
   saving.value = true
   try {
+    // 如果有 BoundingBox 组件，从组件获取最新的区域
+    let registrationArea = editForm.value.registrationArea
+    if (boundingBoxRef.value) {
+      const box = boundingBoxRef.value.getRegistrationBox()
+      if (box) {
+        registrationArea = boxToYoloArea(box, imageSize.value.width, imageSize.value.height)
+      }
+    }
+
     await updateLabel(selectedLabel.value.id, {
       type_id: editForm.value.typeId,
       type_name: editForm.value.typeName,
@@ -311,7 +487,7 @@ const saveEdit = async () => {
       registration: editForm.value.registration,
       clarity: editForm.value.clarity,
       block: editForm.value.block,
-      registration_area: editForm.value.registrationArea
+      registration_area: registrationArea
     })
     closeModal()
     loadLabels()
@@ -462,6 +638,11 @@ onMounted(() => {
   color: #fff;
 }
 
+.labels-table td.id-col {
+  color: #888;
+  font-family: monospace;
+}
+
 .labels-table td.filename {
   font-family: monospace;
   color: #4a90d9;
@@ -595,15 +776,8 @@ onMounted(() => {
   padding: 20px;
 }
 
-.preview-image {
-  text-align: center;
+.preview-section {
   margin-bottom: 20px;
-}
-
-.preview-image img {
-  max-width: 100%;
-  max-height: 400px;
-  border-radius: 4px;
 }
 
 .label-info .info-row {
@@ -675,5 +849,76 @@ onMounted(() => {
   justify-content: center;
   border-top: none;
   padding-top: 20px;
+}
+
+/* 导出对话框 */
+.export-modal {
+  max-width: 450px;
+}
+
+.export-options {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.option-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  cursor: pointer;
+}
+
+.radio-label input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.range-inputs {
+  display: flex;
+  gap: 15px;
+  margin-left: 26px;
+  margin-top: 5px;
+}
+
+.range-inputs .input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.range-inputs .input-group label {
+  font-size: 12px;
+  color: #888;
+}
+
+.range-inputs .input-group input {
+  width: 120px;
+  padding: 8px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: #fff;
+}
+
+.export-modal .modal-footer .export-btn {
+  background: #2d5a2d;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+}
+
+.export-modal .modal-footer .export-btn:hover {
+  background: #3d6a3d;
 }
 </style>

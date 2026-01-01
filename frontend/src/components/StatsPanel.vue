@@ -29,6 +29,17 @@
       <!-- 按机型统计 -->
       <div class="stats-section">
         <h4>按机型统计 (Top 10)</h4>
+        <div v-if="Object.keys(stats.by_type || {}).length === 0" class="no-data">
+          暂无数据
+        </div>
+        <div v-else class="stats-bars">
+          <div
+            v-for="(count, typeId) in topTypes"
+            :key="typeId"
+            class="bar-item"
+          >
+            <div class="bar-label">{{ typeId }}</div>
+            <div class="bar-track">
               <div
                 class="bar-fill type"
                 :style="{ width: getBarWidth(count, maxTypeCount) + '%' }"
@@ -95,7 +106,7 @@ const topTypes = computed(() => {
   return Object.fromEntries(sorted)
 })
 
-const totalImages = computed(() => stats.value.total_labeled + stats.value.unlabeled + (stats.value.skipped || 0))
+// Top 10 航司
 const topAirlines = computed(() => {
   const sorted = Object.entries(stats.value.by_airline || {})
     .sort((a, b) => b[1] - a[1])
@@ -119,23 +130,6 @@ const maxAirlineCount = computed(() => {
 const getBarWidth = (count, max) => {
   if (max === 0) return 0
   return Math.round((count / max) * 100)
-}
-
-// 导出功能
-const exportLabelsCSV = () => {
-  window.open('/api/labels/export', '_blank')
-}
-
-const exportLabelsYOLO = () => {
-  window.open('/api/labels/export-yolo', '_blank')
-}
-
-const exportAirlinesConfig = () => {
-  window.open('/api/export/airlines', '_blank')
-}
-
-const exportAircraftTypesConfig = () => {
-  window.open('/api/export/aircraft-types', '_blank')
 }
 
 // 加载统计数据
@@ -188,7 +182,7 @@ onMounted(() => {
 
 .stats-overview {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 15px;
   margin-bottom: 30px;
 }
@@ -198,6 +192,7 @@ onMounted(() => {
   padding: 20px;
   border-radius: 8px;
   text-align: center;
+  position: relative;
 }
 
 .stat-value {
@@ -210,14 +205,6 @@ onMounted(() => {
 .stat-label {
   font-size: 14px;
   color: #888;
-}
-
-.progress-card {
-  position: relative;
-}
-
-.progress-card .stat-value {
-  color: #4caf50;
 }
 
 .progress-bar {

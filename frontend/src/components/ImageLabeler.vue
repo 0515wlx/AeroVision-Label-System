@@ -42,7 +42,6 @@
           :registration-area="registrationArea"
           @submit="handleSubmit"
           @skip="handleSkip"
-          @skip="handleSkip"
           @skip-as-invalid="handleSkipAsInvalid"
         />
       </div>
@@ -51,6 +50,19 @@
     <!-- 消息提示 -->
     <div v-if="message" :class="['message', message.type]">
       {{ message.text }}
+    </div>
+
+    <!-- 废图确认弹窗 -->
+    <div v-if="showSkipConfirm" class="modal-overlay" @click.self="showSkipConfirm = false">
+      <div class="modal-content">
+        <h3>确认标记为废图</h3>
+        <p>确定要将 "{{ skipConfirmFilename }}" 标记为废图吗？</p>
+        <p class="warning">标记后此图片将永久隐藏，不再显示在待标注列表中。</p>
+        <div class="modal-actions">
+          <button class="cancel-btn" @click="showSkipConfirm = false">取消</button>
+          <button class="confirm-btn" @click="confirmSkipAsInvalid">确认</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -84,6 +96,10 @@ const message = ref(null)
 const lockStatus = ref('') // 'locked' | 'failed' | ''
 const currentLockedFile = ref(null)
 let heartbeatTimer = null
+
+// 废图确认弹窗
+const showSkipConfirm = ref(false)
+const skipConfirmFilename = ref('')
 
 // 图片尺寸（实际尺寸，用于计算 YOLO 格式）
 const imageWidth = ref(1920)
@@ -279,16 +295,19 @@ const handleSkip = async () => {
   }
 }
 
-// 标记为废图并跳过
-const handleSkipAsInvalid = async () => {
+// 标记为废图并跳过 - 显示确认弹窗
+const handleSkipAsInvalid = () => {
   if (!currentImage.value) return
+  skipConfirmFilename.value = currentImage.value.filename
+  showSkipConfirm.value = true
+}
 
-  const filename = currentImage.value.filename
+// 确认标记为废图
+const confirmSkipAsInvalid = async () => {
+  const filename = skipConfirmFilename.value
+  showSkipConfirm.value = false
 
-  if (!confirm(`确定要跳过 "${filename}" 吗？\n跳过后此图片将被标记为废图，永久隐藏不再显示。`)) {
-  if (!confirm(`确定要将 "${filename}" 标记为废图吗？\n标记后此图片将永久隐藏，不再显示在待标注列表中。`)) {
-    return
-  }
+  if (!filename) return
 
   try {
     // 调用跳过 API
@@ -300,7 +319,7 @@ const handleSkipAsInvalid = async () => {
       currentLockedFile.value = null
       stopHeartbeat()
     }
-    showMessage('已跳过该图片', 'success')
+
     showMessage('已标记为废图', 'success')
     emit('labeled')
 
@@ -309,4 +328,249 @@ const handleSkipAsInvalid = async () => {
     if (idx !== -1) {
       images.value.splice(idx, 1)
     }
-    if
+
+    if (availableImages.value.length === 0) {
+      return
+    }
+
+    if (currentIndex.value >= availableImages.value.length) {
+      currentIndex.value = 0
+    }
+
+    resetState()
+    if (currentImage.value) {
+      await loadAndLockImage(currentImage.value.filename)
+    }
+  } catch (e) {
+    console.error('跳过图片失败:', e)
+    showMessage(e.response?.data?.error || '跳过失败', 'error')
+  }
+}
+
+// 重置状态
+const resetState = () => {
+  registrationBox.value = null
+  lockStatus.value = ''
+  if (boundingBoxRef.value) {
+    boundingBoxRef.value.resetView()
+  }
+  if (labelFormRef.value) {
+    labelFormRef.value.reset()
+  }
+}
+
+// 显示消息
+const showMessage = (text, type = 'info') => {
+  message.value = { text, type }
+  setTimeout(() => {
+    message.value = null
+  }, 3000)
+}
+
+// 页面卸载前释放所有锁
+const handleBeforeUnload = () => {
+  if (currentLockedFile.value) {
+    // 使用同步请求释放锁（已废弃但在 beforeunload 中仍有用）
+    navigator.sendBeacon('/api/locks/release', JSON.stringify({
+      filename: currentLockedFile.value,
+      user_id: userId
+    }))
+  }
+}
+
+onMounted(() => {
+  loadImages()
+  window.addEventListener('beforeunload', handleBeforeUnload)
+})
+
+onUnmounted(() => {
+  stopHeartbeat()
+  releaseAllLocks().catch(() => {})
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
+</script>
+
+<style scoped>
+.image-labeler {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.loading,
+.no-images {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+}
+
+.no-images .empty-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+}
+
+.no-images h2 {
+  margin: 0 0 10px 0;
+  color: #fff;
+}
+
+.labeler-content {
+  flex: 1;
+  display: flex;
+  gap: 20px;
+  overflow: hidden;
+}
+
+.image-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.image-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 10px;
+  padding: 10px;
+  background: #252525;
+  border-radius: 4px;
+}
+
+.filename {
+  font-family: monospace;
+  color: #4a90d9;
+}
+
+.lock-status {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.lock-status.locked {
+  background: #2d5a2d;
+  color: #8fdf8f;
+}
+
+.lock-status.failed {
+  background: #5a2d2d;
+  color: #df8f8f;
+}
+
+.progress {
+  margin-left: auto;
+  color: #888;
+  font-size: 14px;
+}
+
+.form-section {
+  width: 350px;
+  flex-shrink: 0;
+}
+
+.message {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 24px;
+  border-radius: 4px;
+  font-size: 14px;
+  z-index: 1000;
+}
+
+.message.success {
+  background: #2d5a2d;
+  color: #8fdf8f;
+}
+
+.message.error {
+  background: #5a2d2d;
+  color: #df8f8f;
+}
+
+.message.info {
+  background: #2d4a5a;
+  color: #8fdfdf;
+}
+
+/* 确认弹窗样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modal-content {
+  background: #2a2a2a;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+}
+
+.modal-content h3 {
+  margin: 0 0 16px 0;
+  color: #fff;
+  font-size: 18px;
+}
+
+.modal-content p {
+  margin: 0 0 12px 0;
+  color: #ccc;
+  font-size: 14px;
+}
+
+.modal-content .warning {
+  color: #ff9800;
+  font-size: 13px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  justify-content: flex-end;
+}
+
+.modal-actions .cancel-btn {
+  padding: 10px 20px;
+  border: 1px solid #666;
+  border-radius: 4px;
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.modal-actions .cancel-btn:hover {
+  border-color: #888;
+  color: #fff;
+}
+
+.modal-actions .confirm-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  background: #aa3333;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.modal-actions .confirm-btn:hover {
+  background: #cc4444;
+}
+</style>
