@@ -144,6 +144,42 @@ class Database:
         finally:
             conn.close()
 
+    def get_aircraft_type_id_by_code(self, code: str) -> Optional[int]:
+        """根据 code 获取机型的数字 id"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id FROM aircraft_types WHERE code = ?', (code,))
+        row = cursor.fetchone()
+        conn.close()
+        return row['id'] if row else None
+
+    def get_airline_id_by_code(self, code: str) -> Optional[int]:
+        """根据 code 获取航司的数字 id"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id FROM airlines WHERE code = ?', (code,))
+        row = cursor.fetchone()
+        conn.close()
+        return row['id'] if row else None
+
+    def get_aircraft_type_code_by_id(self, type_id: int) -> Optional[str]:
+        """根据数字 id 获取机型的 code"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT code FROM aircraft_types WHERE id = ?', (type_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row['code'] if row else None
+
+    def get_airline_code_by_id(self, airline_id: int) -> Optional[str]:
+        """根据数字 id 获取航司的 code"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT code FROM airlines WHERE id = ?', (airline_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row['code'] if row else None
+
     # ==================== 标注操作 ====================
 
     def get_next_sequence(self, type_id: str) -> int:
@@ -359,14 +395,14 @@ class Database:
         返回 True 表示成功获取锁，False 表示图片已被他人锁定
         """
         self.cleanup_expired_locks()
-        
+
         conn = self.get_connection()
         cursor = conn.cursor()
-        
+
         # 检查是否已被锁定
         cursor.execute('SELECT user_id, locked_at FROM image_locks WHERE filename = ?', (filename,))
         row = cursor.fetchone()
-        
+
         if row:
             # 已被锁定，检查是否是同一用户
             if row['user_id'] == user_id:
@@ -382,7 +418,7 @@ class Database:
                 # 其他用户锁定
                 conn.close()
                 return False
-        
+
         # 未被锁定，创建新锁
         try:
             cursor.execute(
@@ -423,7 +459,7 @@ class Database:
     def get_locked_filenames(self) -> set:
         """获取所有被锁定的文件名（排除过期的）"""
         self.cleanup_expired_locks()
-        
+
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT filename FROM image_locks')
@@ -434,7 +470,7 @@ class Database:
     def get_lock_info(self, filename: str) -> Optional[dict]:
         """获取指定文件的锁信息"""
         self.cleanup_expired_locks()
-        
+
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM image_locks WHERE filename = ?', (filename,))

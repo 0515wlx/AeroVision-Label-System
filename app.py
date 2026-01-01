@@ -206,6 +206,10 @@ def export_labels():
     """导出标注数据为 CSV"""
     labels = db.get_all_labels_for_export()
 
+    # 获取所有机型和航司的映射（code -> id）
+    aircraft_types = {t['code']: t['id'] for t in db.get_aircraft_types()}
+    airlines = {a['code']: a['id'] for a in db.get_airlines()}
+
     # 创建 CSV（使用 UTF-8 BOM 以支持 Excel 中文显示）
     output = StringIO()
     # 写入 UTF-8 BOM
@@ -217,13 +221,16 @@ def export_labels():
                      'airlinename', 'clarity', 'block', 'registration'])
 
     # 写入数据
+    # typeid/airlineid 使用数据库数字id，typename/airlinename 使用 code
     for label in labels:
+        type_code = label['type_id']  # 当前存储的是code
+        airline_code = label['airline_id']  # 当前存储的是code
         writer.writerow([
             label['file_name'],
-            label['type_id'],
-            label['type_name'],
-            label['airline_id'],
-            label['airline_name'],
+            aircraft_types.get(type_code, type_code),  # 数字id
+            type_code,  # code 作为 typename
+            airlines.get(airline_code, airline_code),  # 数字id
+            airline_code,  # code 作为 airlinename
             label['clarity'],
             label['block'],
             label['registration']
@@ -279,6 +286,19 @@ def get_airlines():
     return jsonify(airlines)
 
 
+@app.route('/api/airlines/export', methods=['GET'])
+def export_airlines():
+    """导出航司数据为 JSON（id + code）"""
+    airlines = db.get_airlines()
+    # 只保留 id 和 code
+    export_data = [{'id': a['id'], 'code': a['code']} for a in airlines]
+    return Response(
+        json.dumps(export_data, ensure_ascii=False, indent=2),
+        mimetype='application/json',
+        headers={'Content-Disposition': 'attachment; filename=airlines.json'}
+    )
+
+
 @app.route('/api/airlines', methods=['POST'])
 def create_airline():
     """新增航司"""
@@ -301,6 +321,19 @@ def get_aircraft_types():
     """获取机型列表"""
     types = db.get_aircraft_types()
     return jsonify(types)
+
+
+@app.route('/api/aircraft-types/export', methods=['GET'])
+def export_aircraft_types():
+    """导出机型数据为 JSON（id + code）"""
+    types = db.get_aircraft_types()
+    # 只保留 id 和 code
+    export_data = [{'id': t['id'], 'code': t['code']} for t in types]
+    return Response(
+        json.dumps(export_data, ensure_ascii=False, indent=2),
+        mimetype='application/json',
+        headers={'Content-Disposition': 'attachment; filename=aircraft_types.json'}
+    )
 
 
 @app.route('/api/aircraft-types', methods=['POST'])
