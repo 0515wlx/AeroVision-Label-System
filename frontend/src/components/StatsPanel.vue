@@ -18,10 +18,6 @@
           <div class="stat-label">待标注</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">{{ totalImages }}</div>
-          <div class="stat-label">总计</div>
-        </div>
-        <div class="stat-card progress-card">
           <div class="stat-value">{{ progressPercent }}%</div>
           <div class="stat-label">完成率</div>
           <div class="progress-bar">
@@ -33,17 +29,6 @@
       <!-- 按机型统计 -->
       <div class="stats-section">
         <h4>按机型统计 (Top 10)</h4>
-        <div v-if="Object.keys(stats.by_type || {}).length === 0" class="no-data">
-          暂无数据
-        </div>
-        <div v-else class="stats-bars">
-          <div
-            v-for="(count, typeId) in topTypes"
-            :key="typeId"
-            class="bar-item"
-          >
-            <div class="bar-label">{{ typeId }}</div>
-            <div class="bar-track">
               <div
                 class="bar-fill type"
                 :style="{ width: getBarWidth(count, maxTypeCount) + '%' }"
@@ -110,7 +95,7 @@ const topTypes = computed(() => {
   return Object.fromEntries(sorted)
 })
 
-// Top 10 航司
+const totalImages = computed(() => stats.value.total_labeled + stats.value.unlabeled + (stats.value.skipped || 0))
 const topAirlines = computed(() => {
   const sorted = Object.entries(stats.value.by_airline || {})
     .sort((a, b) => b[1] - a[1])
@@ -134,6 +119,23 @@ const maxAirlineCount = computed(() => {
 const getBarWidth = (count, max) => {
   if (max === 0) return 0
   return Math.round((count / max) * 100)
+}
+
+// 导出功能
+const exportLabelsCSV = () => {
+  window.open('/api/labels/export', '_blank')
+}
+
+const exportLabelsYOLO = () => {
+  window.open('/api/labels/export-yolo', '_blank')
+}
+
+const exportAirlinesConfig = () => {
+  window.open('/api/export/airlines', '_blank')
+}
+
+const exportAircraftTypesConfig = () => {
+  window.open('/api/export/aircraft-types', '_blank')
 }
 
 // 加载统计数据

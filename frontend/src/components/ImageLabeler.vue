@@ -42,6 +42,8 @@
           :registration-area="registrationArea"
           @submit="handleSubmit"
           @skip="handleSkip"
+          @skip="handleSkip"
+          @skip-as-invalid="handleSkipAsInvalid"
         />
       </div>
     </div>
@@ -65,7 +67,8 @@ import {
   releaseLock,
   releaseAllLocks,
   sendHeartbeat,
-  userId
+  userId,
+  skipImage
 } from '../api'
 
 const emit = defineEmits(['labeled'])
@@ -276,166 +279,34 @@ const handleSkip = async () => {
   }
 }
 
-// 重置状态
-const resetState = () => {
-  registrationBox.value = null
-  lockStatus.value = ''
-  labelFormRef.value?.resetForm()
-}
+// 标记为废图并跳过
+const handleSkipAsInvalid = async () => {
+  if (!currentImage.value) return
 
-// 显示消息
-const showMessage = (text, type = 'info') => {
-  message.value = { text, type }
-  setTimeout(() => {
-    message.value = null
-  }, 3000)
-}
+  const filename = currentImage.value.filename
 
-// 页面卸载时释放所有锁
-const handleBeforeUnload = () => {
-  // 使用 sendBeacon 确保请求在页面关闭时发送
-  const data = JSON.stringify({ user_id: userId })
-  navigator.sendBeacon('/api/locks/release-all', new Blob([data], { type: 'application/json' }))
-}
-
-onMounted(() => {
-  loadImages()
-  window.addEventListener('beforeunload', handleBeforeUnload)
-})
-
-onUnmounted(() => {
-  stopHeartbeat()
-  window.removeEventListener('beforeunload', handleBeforeUnload)
-  // 释放所有锁
-  releaseAllLocks().catch(() => {})
-})
-
-// 监听图片变化
-watch(currentImage, async (newImg, oldImg) => {
-  if (newImg && newImg.filename !== oldImg?.filename) {
-    // 图片变化时会自动在 loadAndLockImage 中处理
+  if (!confirm(`确定要跳过 "${filename}" 吗？\n跳过后此图片将被标记为废图，永久隐藏不再显示。`)) {
+  if (!confirm(`确定要将 "${filename}" 标记为废图吗？\n标记后此图片将永久隐藏，不再显示在待标注列表中。`)) {
+    return
   }
-})
-</script>
 
-<style scoped>
-.image-labeler {
-  height: 100%;
-  position: relative;
-}
+  try {
+    // 调用跳过 API
+    await skipImage(filename)
 
-.loading,
-.no-images {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #888;
-}
+    // 释放锁
+    if (currentLockedFile.value === filename) {
+      await releaseLock(filename).catch(() => {})
+      currentLockedFile.value = null
+      stopHeartbeat()
+    }
+    showMessage('已跳过该图片', 'success')
+    showMessage('已标记为废图', 'success')
+    emit('labeled')
 
-.no-images .empty-icon {
-  font-size: 64px;
-  margin-bottom: 20px;
-}
-
-.no-images h2 {
-  margin: 0 0 10px 0;
-  color: #fff;
-}
-
-.no-images p {
-  margin: 0;
-  color: #666;
-}
-
-.labeler-content {
-  display: flex;
-  gap: 20px;
-  height: 100%;
-}
-
-.image-section {
-  flex: 1;
-  min-width: 0;
-}
-
-.image-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-  padding: 10px 15px;
-  background: #252525;
-  border-radius: 4px;
-}
-
-.filename {
-  font-family: monospace;
-  color: #4a90d9;
-}
-
-.lock-status {
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 12px;
-}
-
-.lock-status.locked {
-  background: #2d5a2d;
-  color: #8fdf8f;
-}
-
-.lock-status.failed {
-  background: #5a2d2d;
-  color: #df8f8f;
-}
-
-.progress {
-  color: #888;
-  font-size: 14px;
-}
-
-.form-section {
-  width: 350px;
-  flex-shrink: 0;
-}
-
-.message {
-  position: fixed;
-  bottom: 30px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 12px 24px;
-  border-radius: 4px;
-  font-size: 14px;
-  z-index: 1000;
-  animation: slideUp 0.3s ease;
-}
-
-.message.success {
-  background: #2d5a2d;
-  color: #8fdf8f;
-}
-
-.message.error {
-  background: #5a2d2d;
-  color: #df8f8f;
-}
-
-.message.info {
-  background: #2d4a5a;
-  color: #8fbfdf;
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-  }
-}
-</style>
+    // 从列表中移除
+    const idx = images.value.findIndex(img => img.filename === filename)
+    if (idx !== -1) {
+      images.value.splice(idx, 1)
+    }
+    if

@@ -55,4 +55,12 @@ export const sendHeartbeat = (filename) =>
 export const getLockStatus = (filename) =>
   api.get(`/locks/status/${encodeURIComponent(filename)}`)
 
+// 跳过图片
+export const skipImage = (filename) =>
+  api.post('/images/skip', { filename, user_id: userId })
+
+// 导出配置
+export const exportAirlines = () => window.open('/api/export/airlines', '_blank')
+export const exportAircraftTypes = () => window.open('/api/export/aircraft-types', '_blank')
+
 export default api

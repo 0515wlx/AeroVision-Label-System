@@ -99,13 +99,9 @@
       <button type="submit" :disabled="!isValid || loading" class="submit-btn">
         {{ loading ? '保存中...' : '保存标注' }}
       </button>
-      <button type="button" @click="handleSkip" class="skip-btn">
+      <button type="button" @click="handleSkipAsInvalid" class="skip-btn">
         跳过此图
       </button>
-    </div>
-
-    <!-- 错误提示 -->
-    <div v-if="error" class="error-message">{{ error }}</div>
   </form>
 </template>
 
@@ -119,10 +115,9 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['submit', 'skip'])
-
+const emit = defineEmits(['submit', 'skipAsInvalid'])
 const airlines = ref([])
-const aircraftTypes = ref([])
-const loading = ref(false)
+const emit = defineEmits(['submit', 'skip', 'skipAsInvalid'])
 const error = ref('')
 
 const form = ref({
@@ -262,17 +257,17 @@ const handleSubmit = async () => {
 }
 
 // 跳过
-const handleSkip = () => {
-  emit('skip')
-}
+// 跳过（标记为废图）
+const handleSkipAsInvalid = () => {
+  emit('skipAsInvalid')
 
 // 重置表单
 const resetForm = () => {
   form.value = {
+// 标记为废图并跳过
     airlineId: '',
-    airlineName: '',
+  emit('skipAsInvalid')
     typeId: '',
-    typeName: '',
     registration: '',
     clarity: 0.8,
     block: 0
@@ -456,6 +451,4 @@ onMounted(() => {
   border: 1px solid #663333;
   border-radius: 4px;
   color: #ff6666;
-  font-size: 14px;
-}
-</style>
+

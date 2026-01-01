@@ -1,240 +1,387 @@
-# AeroVision 飞机图片标注系统
+# AeroVision Label System
 
-一个专业的飞机图片标注工具，用于构建飞机识别数据集。支持标注飞机机型、航空公司、注册号，以及飞机和注册号的边界框位置，可导出为 YOLO 格式数据。
+飞机图片标注系统 - 一个用于标注飞机图片的 Web 应用，支持多人协作、机型识别、航司标记和机身注册号区域标注。
 
-## ✨ 功能特性
+## 功能特性
 
-- 🖼️ **图片标注**：支持标注飞机整体和注册号的边界框
-- 🏷️ **多维度标签**：机型、航空公司、注册号、清晰度、遮挡程度
-- 📊 **数据统计**：按机型、航空公司统计标注数量
-- 📤 **数据导出**：支持导出为 CSV 格式
-- 🔒 **多人协作**：图片锁定机制，防止多人同时标注同一张图片
-- 🎨 **现代化界面**：基于 Vue 3 的深色主题 UI
+### 核心功能
+- 📷 **图片标注**：支持多种图片格式（jpg, jpeg, png, gif, bmp, webp）
+- ✈️ **机型识别**：预置常见机型数据，支持自定义添加
+- 🏢 **航司管理**：预置主要航空公司，支持扩展
+- 🎯 **区域标注**：支持标注机身注册号区域（YOLO 格式）
+- 📊 **数据统计**：实时统计已标注、未标注和跳过的图片数量
+- 🔒 **协作锁定**：多人协作时防止冲突，自动锁定正在标注的图片
 
-## 🛠️ 技术栈
+### 新增功能 ✨
+- ⏭️ **跳过废图**：可以标记废图并永久隐藏，不再显示在待标注列表中
+- 📈 **跳过统计**：统计面板显示跳过的图片数量
+- 📤 **配置导出**：支持导出航司和机型配置为 JSON 格式
+
+### 数据导出
+- **CSV 导出**：导出标注数据为 CSV 格式，支持 Excel 打开
+- **YOLO 导出**：导出 YOLO 格式的标注文件（zip 压缩包）
+- **配置导出**：导出航司配置（airlines.json）和机型配置（aircraft_types.json）
+
+## 技术栈
 
 ### 后端
-- Python 3.8+
-- Flask - Web 框架
-- SQLite - 数据库
-- Flask-CORS - 跨域支持
+- **Flask**：轻量级 Web 框架
+- **SQLite**：嵌入式数据库
+- **Python 3.x**
 
 ### 前端
-- Vue 3 - 前端框架
-- Vite - 构建工具
-- Axios - HTTP 客户端
+- **Vue 3**：渐进式 JavaScript 框架
+- **Vite**：快速的前端构建工具
+- **原生 JavaScript**：Canvas 绘图和交互
 
-## 📁 项目结构
+## 项目结构
 
 ```
 AeroVision-Label-System/
-├── app.py                 # Flask 后端入口
-├── database.py            # 数据库操作模块
-├── requirements.txt       # Python 依赖
+├── app.py                  # Flask 后端主文件
+├── database.py             # 数据库操作模块
+├── requirements.txt        # Python 依赖
 ├── labels.db              # SQLite 数据库
+├── .env                   # 环境变量配置（可选）
 ├── data/                  # 预置数据
-│   ├── airlines.json      # 航空公司列表
-│   └── aircraft_types.json # 机型列表
+│   ├── airlines.json      # 航司数据
+│   └── aircraft_types.json # 机型数据
 ├── images/                # 待标注图片目录
 ├── labeled/               # 已标注图片目录
 └── frontend/              # 前端项目
+    ├── index.html
     ├── package.json
     ├── vite.config.js
     └── src/
         ├── App.vue
         ├── main.js
-        ├── api/           # API 接口
         ├── components/    # Vue 组件
-        │   ├── BoundingBox.vue    # 边界框绘制
-        │   ├── ImageLabeler.vue   # 标注主界面
-        │   ├── LabelForm.vue      # 标注表单
-        │   ├── LabelList.vue      # 已标注列表
-        │   └── StatsPanel.vue     # 统计面板
         └── styles/        # 样式文件
 ```
 
-## 🚀 快速开始
+## 快速开始
 
 ### 环境要求
-
-- Python 3.8+
-- Node.js 16+
+- Python 3.7+
+- Node.js 14+
 - npm 或 yarn
 
-### 安装步骤
+### 后端安装
 
-#### 1. 克隆项目
-
+1. 克隆项目
 ```bash
-git clone https://github.com/AeroVision-Lab/AeroVision-Label-System.git
+git clone <repository-url>
 cd AeroVision-Label-System
 ```
 
-#### 2. 安装后端依赖
-
+2. 安装 Python 依赖
 ```bash
 pip install -r requirements.txt
 ```
 
-#### 3. 安装前端依赖
-
+3. 配置环境变量（可选）
 ```bash
-cd frontend
-npm install
-```
-
-#### 4. 准备图片
-
-将待标注的飞机图片放入 `images/` 目录。支持的格式：
-- JPG / JPEG
-- PNG
-- BMP
-- WebP
-
-### 运行项目
-
-#### 启动后端服务
-
-```bash
-# 在项目根目录
-python app.py
-```
-
-后端默认运行在 `http://localhost:5000`
-
-#### 启动前端开发服务
-
-```bash
-# 在 frontend 目录
-cd frontend
-npm run dev
-```
-
-前端默认运行在 `http://localhost:3000`
-
-## 📖 使用说明
-
-### 标注流程
-
-1. **选择图片**：系统自动加载 `images/` 目录下的待标注图片
-2. **绘制边界框**：
-   - 点击"飞机区域"按钮，在图片上拖拽绘制飞机的边界框
-   - 点击"注册号区域"按钮，在图片上拖拽绘制注册号的边界框
-3. **填写标注信息**：
-   - 选择机型（如 A320、B738 等）
-   - 选择航空公司
-   - 输入注册号
-   - 设置清晰度（0-1）
-   - 设置遮挡程度（0-1）
-4. **提交标注**：点击提交按钮完成标注
-
-### 文件命名规则
-
-标注完成后，图片会自动移动到 `labeled/` 目录，并按以下规则重命名：
-
-```
-{机型代码}-{序号}.{原扩展名}
-```
-
-例如：`A320-0001.jpg`、`B738-0002.png`
-
-### 数据导出
-
-在"已标注"页面可以导出所有标注数据为 CSV 格式，包含以下字段：
-
-| 字段 | 说明 |
-|------|------|
-| file_name | 新文件名 |
-| type_id | 机型代码 |
-| type_name | 机型名称 |
-| airline_id | 航空公司代码 |
-| airline_name | 航空公司名称 |
-| clarity | 清晰度 (0-1) |
-| block | 遮挡程度 (0-1) |
-| registration | 注册号 |
-
-## ⚙️ 配置选项
-
-可以通过环境变量或 `.env` 文件配置以下选项：
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `IMAGES_DIR` | 待标注图片目录 | `./images` |
-| `LABELED_DIR` | 已标注图片目录 | `./labeled` |
-| `DATABASE_PATH` | 数据库文件路径 | `./labels.db` |
-
-示例 `.env` 文件：
-
-```env
+# 创建 .env 文件
 IMAGES_DIR=./images
 LABELED_DIR=./labeled
 DATABASE_PATH=./labels.db
+FLASK_PORT=5000
+FLASK_DEBUG=false
 ```
 
-## 🔧 预置数据
+4. 启动后端服务
+```bash
+python app.py
+```
 
-### 航空公司
+后端服务将在 `http://localhost:5000` 启动
 
-系统预置了 40+ 家主流航空公司，包括：
-- 中国航司：国航、东航、南航、海航、厦航、川航、深航、春秋、吉祥等
-- 国际航司：新航、国泰、阿联酋、卡塔尔、汉莎、法航、英航、美航等
+### 前端安装
 
-### 机型
+1. 进入前端目录
+```bash
+cd frontend
+```
 
-系统预置了 50+ 种常见机型，包括：
-- 空客：A319/A320/A321/A330/A350/A380 系列
-- 波音：737/747/757/767/777/787 系列
-- 中国商飞：C919、ARJ21
-- 其他：E190/E195、CRJ 系列、ATR72、新舟60
+2. 安装依赖
+```bash
+npm install
+# 或
+yarn install
+```
 
-如需添加更多航司或机型，可编辑 `data/airlines.json` 和 `data/aircraft_types.json` 文件。
+3. 启动开发服务器
+```bash
+npm run dev
+# 或
+yarn dev
+```
 
-## 🤝 多人协作
+4. 构建生产版本
+```bash
+npm run build
+# 或
+yarn build
+```
 
-系统支持多人同时使用，通过图片锁定机制防止冲突：
+前端开发服务器将在 `http://localhost:5173` 启动
 
-- 当一个用户正在标注某张图片时，该图片会被锁定
-- 其他用户无法同时标注被锁定的图片
-- 锁定会在 10 分钟后自动释放（防止用户异常退出导致死锁）
-- 用户断开连接时会自动释放其持有的所有锁
+## 使用说明
 
-## 📝 API 接口
+### 1. 准备图片
+将待标注的飞机图片放入 `images/` 目录
+
+### 2. 开始标注
+1. 在浏览器中打开前端页面
+2. 系统会自动分配一个用户 ID（用于协作锁定）
+3. 从待标注列表中选择图片
+4. 填写标注信息：
+   - 机型（必填）
+   - 航司（必填）
+   - 清晰度（0-1）
+   - 遮挡程度（0-1）
+   - 机身注册号（必填）
+   - 注册号区域（在图片上框选）
+
+### 3. 跳过废图
+- 如果遇到无法标注的废图，点击"跳过该图"按钮
+- 跳过的图片将永久隐藏，不再显示在待标注列表中
+- 统计面板会显示已跳过的图片数量
+
+### 4. 查看统计
+统计面板显示：
+- 已标注数量
+- 未标注数量
+- 已跳过数量
+- 按机型统计
+- 按航司统计
+
+### 5. 导出数据
+
+#### 导出标注数据
+- **CSV 格式**：访问 `http://localhost:5000/api/labels/export`
+- **YOLO 格式**：访问 `http://localhost:5000/api/labels/export-yolo`
+
+#### 导出配置数据
+- **航司配置**：访问 `http://localhost:5000/api/export/airlines`
+- **机型配置**：访问 `http://localhost:5000/api/export/aircraft-types`
+
+## API 文档
 
 ### 图片相关
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/images` | 获取待标注图片列表 |
-| GET | `/api/images/<filename>` | 获取图片文件 |
-| GET | `/api/labeled-images/<filename>` | 获取已标注图片文件 |
+#### 获取待标注图片列表
+```http
+GET /api/images?user_id=<user_id>
+```
+
+#### 跳过图片
+```http
+POST /api/images/skip
+Content-Type: application/json
+
+{
+  "filename": "image.jpg",
+  "user_id": "user123"
+}
+```
 
 ### 标注相关
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/labels` | 获取已标注列表（分页） |
-| GET | `/api/labels/<id>` | 获取单个标注记录 |
-| POST | `/api/labels` | 创建标注记录 |
-| PUT | `/api/labels/<id>` | 更新标注记录 |
-| DELETE | `/api/labels/<id>` | 删除标注记录 |
-| GET | `/api/labels/export` | 导出标注数据 |
+#### 创建标注
+```http
+POST /api/labels
+Content-Type: application/json
 
-### 基础数据
+{
+  "original_file_name": "image.jpg",
+  "type_id": "A320",
+  "type_name": "空客A320",
+  "airline_id": "CCA",
+  "airline_name": "中国国航",
+  "clarity": 0.9,
+  "block": 0.1,
+  "registration": "B-1234",
+  "registration_area": "0.5 0.5 0.2 0.1"
+}
+```
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/airlines` | 获取航空公司列表 |
-| GET | `/api/aircraft-types` | 获取机型列表 |
-| GET | `/api/stats` | 获取统计信息 |
+#### 导出标注数据
+```http
+GET /api/labels/export          # CSV 格式
+GET /api/labels/export-yolo     # YOLO 格式
+```
 
-## 📄 许可证
+### 配置相关
 
-本项目采用 GPL-3.0 许可证，详情请参阅 [LICENSE](LICENSE) 文件。
+#### 获取航司列表
+```http
+GET /api/airlines
+```
 
-## 🙏 致谢
+#### 获取机型列表
+```http
+GET /api/aircraft-types
+```
 
-感谢所有为航空数据集建设做出贡献的朋友们！
+#### 导出配置
+```http
+GET /api/export/airlines         # 导出航司配置
+GET /api/export/aircraft-types   # 导出机型配置
+```
 
-## 联系我们
-如有任何问题或建议，欢迎通过以下方式联系我们：
-- 邮箱：(<5712.cg8@gmail.com>)[mailto:5712.cg8@gmail.com]
+### 统计相关
+
+#### 获取统计信息
+```http
+GET /api/stats
+```
+
+返回示例：
+```json
+{
+  "total_labeled": 100,
+  "unlabeled": 50,
+  "skipped": 10,
+  "by_type": {
+    "A320": 30,
+    "B738": 25
+  },
+  "by_airline": {
+    "CCA": 40,
+    "CSN": 35
+  }
+}
+```
+
+## 数据库结构
+
+### labels 表
+存储标注记录
+- `id`: 主键
+- `file_name`: 标注后的文件名
+- `original_file_name`: 原始文件名
+- `type_id`: 机型代码
+- `type_name`: 机型名称
+- `airline_id`: 航司代码
+- `airline_name`: 航司名称
+- `clarity`: 清晰度
+- `block`: 遮挡程度
+- `registration`: 机身注册号
+- `registration_area`: 注册号区域（YOLO 格式）
+- `created_at`: 创建时间
+
+### skipped_images 表
+存储跳过的废图
+- `id`: 主键
+- `filename`: 文件名
+- `user_id`: 跳过的用户
+- `skipped_at`: 跳过时间
+
+### airlines 表
+存储航司信息
+- `id`: 主键
+- `code`: 航司代码（ICAO）
+- `name`: 航司名称
+
+### aircraft_types 表
+存储机型信息
+- `id`: 主键
+- `code`: 机型代码
+- `name`: 机型名称
+
+### image_locks 表
+存储图片锁（用于多人协作）
+- `id`: 主键
+- `filename`: 文件名
+- `user_id`: 锁定的用户
+- `locked_at`: 锁定时间
+
+## 文件命名规则
+
+标注后的图片文件命名格式：`{机型代码}-{序号}.{扩展名}`
+
+例如：
+- `A320-0001.jpg`
+- `B738-0042.png`
+- `B77W-0123.jpeg`
+
+序号从 0001 开始，每个机型独立计数。
+
+## 多人协作
+
+### 图片锁机制
+- 用户开始标注图片时自动获取锁
+- 锁定的图片其他用户无法标注
+- 锁定超时时间：10 分钟
+- 用户离开页面时自动释放所有锁
+
+### 心跳机制
+- 每隔一段时间自动刷新锁的过期时间
+- 防止标注过程中锁被意外释放
+
+## 配置说明
+
+### 预置数据
+系统预置了常见的航司和机型数据，位于 `data/` 目录：
+- `airlines.json`: 包含 40+ 主要航空公司
+- `aircraft_types.json`: 包含 50+ 常见机型
+
+### 自定义配置
+1. 直接编辑 JSON 文件添加新的航司或机型
+2. 重启后端服务，系统会自动加载
+3. 也可以通过前端界面动态添加
+4. 使用导出功能备份当前配置
+
+### 环境变量
+- `IMAGES_DIR`: 待标注图片目录（默认：./images）
+- `LABELED_DIR`: 已标注图片目录（默认：./labeled）
+- `DATABASE_PATH`: 数据库文件路径（默认：./labels.db）
+- `FLASK_PORT`: 后端服务端口（默认：5000）
+- `FLASK_DEBUG`: 调试模式（默认：false）
+
+## 常见问题
+
+### Q: 如何批量导入图片？
+A: 直接将图片文件复制到 `images/` 目录即可。
+
+### Q: 标注数据保存在哪里？
+A: 标注数据保存在 SQLite 数据库（labels.db）中，图片文件移动到 `labeled/` 目录。
+
+### Q: 如何备份数据？
+A: 备份以下内容即可：
+- `labels.db` 数据库文件
+- `labeled/` 目录中的所有图片
+- 使用导出功能导出 CSV、JSON 等格式的数据
+
+### Q: 跳过的图片可以恢复吗？
+A: 可以直接在数据库的 `skipped_images` 表中删除对应记录，图片将重新显示。
+
+### Q: 支持哪些图片格式？
+A: 支持 jpg, jpeg, png, gif, bmp, webp 格式。
+
+### Q: 多人同时标注会冲突吗？
+A: 不会，系统有图片锁机制，同一张图片只能被一个用户标注。
+
+## 开发计划
+
+- [ ] 支持批量导入标注数据
+- [ ] 支持撤销跳过操作
+- [ ] 添加图片预览缩略图
+- [ ] 支持键盘快捷键
+- [ ] 添加用户权限管理
+- [ ] 支持标注历史记录
+- [ ] 添加数据校验和质量检查
+
+## 许可证
+
+本项目采用 MIT 许可证，详见 [LICENSE](LICENSE) 文件。
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+## 联系方式
+
+如有问题或建议，请通过 GitHub Issues 联系。
+

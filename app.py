@@ -3,6 +3,7 @@ Flask 后端 API
 """
 import os
 import csv
+import json
 import shutil
 import zipfile
 from io import StringIO, BytesIO
@@ -46,15 +47,16 @@ def is_image_file(filename: str) -> bool:
 
 @app.route('/api/images', methods=['GET'])
 def get_images():
-    """获取待标注图片列表（排除已标注的和被他人锁定的）"""
+    """获取待标注图片列表（排除已标注的、被跳过的和被他人锁定的）"""
     user_id = request.args.get('user_id', '')
     labeled_files = db.get_labeled_original_filenames()
+    skipped_files = db.get_skipped_filenames()
     locked_files = db.get_locked_filenames()
 
     images = []
     if os.path.exists(IMAGES_DIR):
         for filename in os.listdir(IMAGES_DIR):
-            if is_image_file(filename) and filename not in labeled_files:
+            if is_image_file(filename) and filename not in labeled_files and filename not in skipped_files:
                 # 检查是否被锁定（排除自己锁定的）
                 lock_info = db.get_lock_info(filename)
                 is_locked_by_others = lock_info and lock_info['user_id'] != user_id
