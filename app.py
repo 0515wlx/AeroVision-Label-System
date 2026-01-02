@@ -7,14 +7,19 @@ import json
 import shutil
 import zipfile
 from io import StringIO, BytesIO
-from flask import Flask, jsonify, request, send_file, Response
+from flask import Flask, jsonify, request, send_file, Response, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
 from database import Database
 
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    static_folder='./frontend/dist',
+    static_url_path='/'
+    )
+
 CORS(app)
 
 # 配置
@@ -490,6 +495,16 @@ def get_lock_status(filename: str):
         })
     return jsonify({'locked': False})
 
+# ==================== 前端静态资源服务 ====================
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_frontend(path):
+    """提供前端静态资源和 SPA 路由支持"""
+    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    else:
+        return send_from_directory(app.static_folder, 'index.html')
 
 if __name__ == '__main__':
     port = int(os.getenv('FLASK_PORT', 5000))

@@ -6,6 +6,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: aerovision-label
+    ports:
+        - "5000:5000"
     volumes:
       - ./images:/app/images
       - ./labeled:/app/labeled
