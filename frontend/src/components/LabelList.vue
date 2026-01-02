@@ -9,6 +9,9 @@
         <button @click="exportYolo" class="export-btn yolo">
           导出 YOLO
         </button>
+        <button @click="exportImagesBtn" class="export-btn images">
+          导出照片
+        </button>
         <button @click="loadLabels" class="refresh-btn">
           刷新
         </button>
@@ -232,7 +235,7 @@
         </div>
         <div class="modal-footer">
           <button @click="doExport" class="export-btn">
-            {{ exportType === 'csv' ? '导出 CSV' : '导出 YOLO' }}
+            {{ exportType === 'csv' ? '导出 CSV' : exportType === 'yolo' ? '导出 YOLO' : '导出照片' }}
           </button>
           <button @click="closeExportModal" class="cancel-btn">取消</button>
         </div>
@@ -250,6 +253,7 @@ import {
   deleteLabel,
   exportLabels,
   exportYoloLabels,
+  exportImages,
   getLabeledImageUrl,
   getAirlines,
   getAircraftTypes
@@ -287,7 +291,7 @@ const deleting = ref(false)
 
 // 导出选项
 const showExportModal = ref(false)
-const exportType = ref('csv') // 'csv' | 'yolo'
+const exportType = ref('csv') // 'csv' | 'yolo' | 'images'
 const exportRange = ref('all') // 'all' | 'range'
 const exportStartId = ref(null)
 const exportEndId = ref(null)
@@ -389,8 +393,10 @@ const doExport = () => {
 
   if (exportType.value === 'csv') {
     exportLabels(startId, endId)
-  } else {
+  } else if (exportType.value === 'yolo') {
     exportYoloLabels(startId, endId)
+  } else if (exportType.value === 'images') {
+    exportImages(startId, endId)
   }
   closeExportModal()
 }
@@ -403,6 +409,11 @@ const exportCsv = () => {
 // 导出 YOLO 格式
 const exportYolo = () => {
   openExportModal('yolo')
+}
+
+// 导出照片
+const exportImagesBtn = () => {
+  openExportModal('images')
 }
 
 // 查看标注
@@ -604,6 +615,15 @@ onMounted(() => {
 
 .export-btn.yolo:hover {
   background: #5a6a9a;
+}
+
+.export-btn.images {
+  background: #9c27b0;
+  border-color: #ba68c8;
+}
+
+.export-btn.images:hover {
+  background: #ba68c8;
 }
 
 .loading,

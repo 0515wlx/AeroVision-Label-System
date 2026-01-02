@@ -45,6 +45,14 @@ export const exportYoloLabels = (startId, endId) => {
   if (params.length > 0) url += '?' + params.join('&')
   window.open(url, '_blank')
 }
+export const exportImages = (startId, endId) => {
+  let url = '/api/labels/export-images'
+  const params = []
+  if (startId) params.push(`start_id=${startId}`)
+  if (endId) params.push(`end_id=${endId}`)
+  if (params.length > 0) url += '?' + params.join('&')
+  window.open(url, '_blank')
+}
 
 // 航司相关
 export const getAirlines = () => api.get('/airlines')

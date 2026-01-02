@@ -18,6 +18,7 @@ services:
       - IMAGES_DIR=/app/images
       - LABELED_DIR=/app/labeled
       - DATABASE_PATH=/app/data/labels.db
+      - EXPORT_IMAGES_THRESHOLD=100
     restart: unless-stopped
     networks:
       - aerovision-network

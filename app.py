@@ -26,6 +26,7 @@ CORS(app)
 IMAGES_DIR = os.getenv('IMAGES_DIR', './images')
 LABELED_DIR = os.getenv('LABELED_DIR', './labeled')
 DATABASE_PATH = os.getenv('DATABASE_PATH', './labels.db')
+EXPORT_IMAGES_THRESHOLD = int(os.getenv('EXPORT_IMAGES_THRESHOLD', '100'))
 
 # 确保目录存在
 os.makedirs(IMAGES_DIR, exist_ok=True)
@@ -318,6 +319,54 @@ def export_yolo_labels():
         mimetype='application/zip',
         as_attachment=True,
         download_name='yolo_labels.zip'
+    )
+
+
+@app.route('/api/labels/export-images', methods=['GET'])
+def export_images():
+    """导出已标注的照片（zip 包含所有图片），支持ID范围筛选
+
+    如果照片数量超过阈值，返回错误提示
+    """
+    start_id = request.args.get('start_id', type=int)
+    end_id = request.args.get('end_id', type=int)
+
+    labels = db.get_all_labels_for_export(start_id, end_id)
+
+    # 检查照片数量
+    if len(labels) > EXPORT_IMAGES_THRESHOLD:
+        return jsonify({
+            'error': f'照片数量({len(labels)})超过限制({EXPORT_IMAGES_THRESHOLD})，无法打包下载',
+            'count': len(labels),
+            'threshold': EXPORT_IMAGES_THRESHOLD
+        }), 400
+
+    # 创建内存中的 zip 文件
+    zip_buffer = BytesIO()
+    missing_files = []
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for label in labels:
+            # 查找图片文件
+            img_path = os.path.join(LABELED_DIR, label['file_name'])
+
+            if os.path.exists(img_path):
+                # 读取图片文件并添加到ZIP
+                zip_file.write(img_path, arcname=label['file_name'])
+            else:
+                missing_files.append(label['file_name'])
+
+    # 如果有缺失的文件，记录警告
+    if missing_files:
+        print(f"警告: 以下文件未找到: {', '.join(missing_files)}")
+
+    zip_buffer.seek(0)
+
+    return send_file(
+        zip_buffer,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name='labeled_images.zip'
     )
 
 
