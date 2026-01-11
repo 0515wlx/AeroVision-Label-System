@@ -436,28 +436,57 @@ class Database:
         cursor.execute('SELECT COUNT(*) as count FROM labels')
         total = cursor.fetchone()['count']
 
+        # 按机型统计（包含名称）
         cursor.execute('''
-            SELECT type_id, COUNT(*) as count
+            SELECT type_id, type_name, COUNT(*) as count
             FROM labels
             GROUP BY type_id
             ORDER BY count DESC
         ''')
         by_type = {row['type_id']: row['count'] for row in cursor.fetchall()}
 
+        # 获取涉及的机型列表（包含详情）
         cursor.execute('''
-            SELECT airline_id, COUNT(*) as count
+            SELECT type_id, type_name, COUNT(*) as count
+            FROM labels
+            GROUP BY type_id
+            ORDER BY count DESC
+        ''')
+        types_detail = [{'code': row['type_id'], 'name': row['type_name'], 'count': row['count']}
+                        for row in cursor.fetchall()]
+
+        # 按航司统计（包含名称）
+        cursor.execute('''
+            SELECT airline_id, airline_name, COUNT(*) as count
             FROM labels
             GROUP BY airline_id
             ORDER BY count DESC
         ''')
         by_airline = {row['airline_id']: row['count'] for row in cursor.fetchall()}
 
+        # 获取涉及的航司列表（包含详情）
+        cursor.execute('''
+            SELECT airline_id, airline_name, COUNT(*) as count
+            FROM labels
+            GROUP BY airline_id
+            ORDER BY count DESC
+        ''')
+        airlines_detail = [{'code': row['airline_id'], 'name': row['airline_name'], 'count': row['count']}
+                           for row in cursor.fetchall()]
+
+        # 废图数量
+        cursor.execute('SELECT COUNT(*) as count FROM skipped_images')
+        skipped_count = cursor.fetchone()['count']
+
         conn.close()
 
         return {
             'total_labeled': total,
             'by_type': by_type,
-            'by_airline': by_airline
+            'by_airline': by_airline,
+            'types_detail': types_detail,
+            'airlines_detail': airlines_detail,
+            'skipped_count': skipped_count
         }
 
     # ==================== 图片锁操作 ====================

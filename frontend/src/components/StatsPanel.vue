@@ -27,6 +27,10 @@
           <div class="stat-value">{{ stats.unlabeled }}</div>
           <div class="stat-label">待标注</div>
         </div>
+        <div class="stat-card skipped">
+          <div class="stat-value">{{ stats.skipped_count || 0 }}</div>
+          <div class="stat-label">废图</div>
+        </div>
         <div class="stat-card">
           <div class="stat-value">{{ progressPercent }}%</div>
           <div class="stat-label">完成率</div>
@@ -36,50 +40,100 @@
         </div>
       </div>
 
+      <!-- 搜索框 -->
+      <div class="search-section">
+        <input
+          v-model="searchQuery"
+          type="text"
+          class="search-input"
+          placeholder="搜索机型或航司（代码或名称）..."
+        />
+      </div>
+
+      <!-- 搜索结果 -->
+      <div v-if="searchQuery" class="search-results">
+        <h4>搜索结果</h4>
+        <div v-if="filteredTypes.length === 0 && filteredAirlines.length === 0" class="no-data">
+          未找到匹配结果
+        </div>
+        <div v-else>
+          <div v-if="filteredTypes.length > 0" class="result-group">
+            <div class="result-label">机型</div>
+            <div class="result-list">
+              <div v-for="item in filteredTypes" :key="item.code" class="result-item">
+                <span class="result-code">{{ item.code }}</span>
+                <span class="result-name">{{ item.name }}</span>
+                <span class="result-count">{{ item.count }} 张</span>
+              </div>
+            </div>
+          </div>
+          <div v-if="filteredAirlines.length > 0" class="result-group">
+            <div class="result-label">航司</div>
+            <div class="result-list">
+              <div v-for="item in filteredAirlines" :key="item.code" class="result-item">
+                <span class="result-code">{{ item.code }}</span>
+                <span class="result-name">{{ item.name }}</span>
+                <span class="result-count">{{ item.count }} 张</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 按机型统计 -->
       <div class="stats-section">
-        <h4>按机型统计 (Top 10)</h4>
-        <div v-if="Object.keys(stats.by_type || {}).length === 0" class="no-data">
+        <div class="section-header">
+          <h4>按机型统计 ({{ typesDetail.length }} 种)</h4>
+          <button v-if="typesDetail.length > 10" @click="showAllTypes = !showAllTypes" class="toggle-btn">
+            {{ showAllTypes ? '收起' : '展开全部' }}
+          </button>
+        </div>
+        <div v-if="typesDetail.length === 0" class="no-data">
           暂无数据
         </div>
         <div v-else class="stats-bars">
           <div
-            v-for="(count, typeId) in topTypes"
-            :key="typeId"
+            v-for="item in displayedTypes"
+            :key="item.code"
             class="bar-item"
           >
-            <div class="bar-label">{{ typeId }}</div>
+            <div class="bar-label" :title="item.name">{{ item.code }}</div>
             <div class="bar-track">
               <div
                 class="bar-fill type"
-                :style="{ width: getBarWidth(count, maxTypeCount) + '%' }"
+                :style="{ width: getBarWidth(item.count, maxTypeCount) + '%' }"
               ></div>
             </div>
-            <div class="bar-count">{{ count }}</div>
+            <div class="bar-count">{{ item.count }}</div>
           </div>
         </div>
       </div>
 
       <!-- 按航司统计 -->
       <div class="stats-section">
-        <h4>按航司统计 (Top 10)</h4>
-        <div v-if="Object.keys(stats.by_airline || {}).length === 0" class="no-data">
+        <div class="section-header">
+          <h4>按航司统计 ({{ airlinesDetail.length }} 家)</h4>
+          <button v-if="airlinesDetail.length > 10" @click="showAllAirlines = !showAllAirlines" class="toggle-btn">
+            {{ showAllAirlines ? '收起' : '展开全部' }}
+          </button>
+        </div>
+        <div v-if="airlinesDetail.length === 0" class="no-data">
           暂无数据
         </div>
         <div v-else class="stats-bars">
           <div
-            v-for="(count, airlineId) in topAirlines"
-            :key="airlineId"
+            v-for="item in displayedAirlines"
+            :key="item.code"
             class="bar-item"
           >
-            <div class="bar-label">{{ airlineId }}</div>
+            <div class="bar-label" :title="item.name">{{ item.code }}</div>
             <div class="bar-track">
               <div
                 class="bar-fill airline"
-                :style="{ width: getBarWidth(count, maxAirlineCount) + '%' }"
+                :style="{ width: getBarWidth(item.count, maxAirlineCount) + '%' }"
               ></div>
             </div>
-            <div class="bar-count">{{ count }}</div>
+            <div class="bar-count">{{ item.count }}</div>
           </div>
         </div>
       </div>
@@ -92,14 +146,21 @@ import { ref, computed, onMounted } from 'vue'
 import { getStats, exportAirlines, exportAircraftTypes } from '../api'
 
 const loading = ref(true)
+const searchQuery = ref('')
+const showAllTypes = ref(false)
+const showAllAirlines = ref(false)
+
 const stats = ref({
   total_labeled: 0,
   unlabeled: 0,
+  skipped_count: 0,
   by_type: {},
-  by_airline: {}
+  by_airline: {},
+  types_detail: [],
+  airlines_detail: []
 })
 
-// 总图片数
+// 总图片数（已标注 + 待标注，不含废图）
 const totalImages = computed(() => stats.value.total_labeled + stats.value.unlabeled)
 
 // 完成率
@@ -108,32 +169,52 @@ const progressPercent = computed(() => {
   return Math.round((stats.value.total_labeled / totalImages.value) * 100)
 })
 
-// Top 10 机型
-const topTypes = computed(() => {
-  const sorted = Object.entries(stats.value.by_type || {})
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-  return Object.fromEntries(sorted)
+// 机型详情列表
+const typesDetail = computed(() => stats.value.types_detail || [])
+
+// 航司详情列表
+const airlinesDetail = computed(() => stats.value.airlines_detail || [])
+
+// 显示的机型（展开或只显示 Top 10）
+const displayedTypes = computed(() => {
+  return showAllTypes.value ? typesDetail.value : typesDetail.value.slice(0, 10)
 })
 
-// Top 10 航司
-const topAirlines = computed(() => {
-  const sorted = Object.entries(stats.value.by_airline || {})
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-  return Object.fromEntries(sorted)
+// 显示的航司（展开或只显示 Top 10）
+const displayedAirlines = computed(() => {
+  return showAllAirlines.value ? airlinesDetail.value : airlinesDetail.value.slice(0, 10)
+})
+
+// 搜索过滤机型
+const filteredTypes = computed(() => {
+  if (!searchQuery.value) return []
+  const query = searchQuery.value.toLowerCase()
+  return typesDetail.value.filter(item =>
+    item.code.toLowerCase().includes(query) ||
+    item.name.toLowerCase().includes(query)
+  )
+})
+
+// 搜索过滤航司
+const filteredAirlines = computed(() => {
+  if (!searchQuery.value) return []
+  const query = searchQuery.value.toLowerCase()
+  return airlinesDetail.value.filter(item =>
+    item.code.toLowerCase().includes(query) ||
+    item.name.toLowerCase().includes(query)
+  )
 })
 
 // 最大机型数量
 const maxTypeCount = computed(() => {
-  const values = Object.values(stats.value.by_type || {})
-  return values.length > 0 ? Math.max(...values) : 1
+  if (typesDetail.value.length === 0) return 1
+  return Math.max(...typesDetail.value.map(item => item.count))
 })
 
 // 最大航司数量
 const maxAirlineCount = computed(() => {
-  const values = Object.values(stats.value.by_airline || {})
-  return values.length > 0 ? Math.max(...values) : 1
+  if (airlinesDetail.value.length === 0) return 1
+  return Math.max(...airlinesDetail.value.map(item => item.count))
 })
 
 // 计算条形图宽度
@@ -237,9 +318,9 @@ onMounted(() => {
 
 .stats-overview {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 15px;
-  margin-bottom: 30px;
+  margin-bottom: 20px;
 }
 
 .stat-card {
@@ -250,8 +331,12 @@ onMounted(() => {
   position: relative;
 }
 
+.stat-card.skipped .stat-value {
+  color: #f44336;
+}
+
 .stat-value {
-  font-size: 32px;
+  font-size: 28px;
   font-weight: bold;
   color: #4a90d9;
   margin-bottom: 5px;
@@ -279,15 +364,124 @@ onMounted(() => {
   transition: width 0.5s ease;
 }
 
+/* 搜索框 */
+.search-section {
+  margin-bottom: 20px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #1a1a1a;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.search-input:focus {
+  border-color: #4a90d9;
+}
+
+.search-input::placeholder {
+  color: #666;
+}
+
+/* 搜索结果 */
+.search-results {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.search-results h4 {
+  margin: 0 0 10px 0;
+  color: #fff;
+  font-size: 14px;
+}
+
+.result-group {
+  margin-bottom: 15px;
+}
+
+.result-group:last-child {
+  margin-bottom: 0;
+}
+
+.result-label {
+  color: #888;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.result-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.result-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #252525;
+  border-radius: 4px;
+}
+
+.result-code {
+  font-family: monospace;
+  color: #4a90d9;
+  min-width: 60px;
+}
+
+.result-name {
+  flex: 1;
+  color: #ccc;
+  font-size: 13px;
+}
+
+.result-count {
+  color: #888;
+  font-size: 13px;
+}
+
+/* 统计区域 */
 .stats-section {
   margin-bottom: 25px;
 }
 
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
 .stats-section h4 {
-  margin: 0 0 15px 0;
+  margin: 0;
   color: #aaa;
   font-size: 14px;
   font-weight: 500;
+}
+
+.toggle-btn {
+  padding: 4px 10px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: transparent;
+  color: #888;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.toggle-btn:hover {
+  border-color: #666;
+  color: #fff;
 }
 
 .no-data {
@@ -314,6 +508,9 @@ onMounted(() => {
   font-size: 13px;
   color: #aaa;
   font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bar-track {

@@ -451,12 +451,13 @@ def get_stats():
     """获取统计信息"""
     stats = db.get_stats()
 
-    # 添加未标注数量
+    # 添加未标注数量（排除废图）
     labeled_files = db.get_labeled_original_filenames()
+    skipped_files = db.get_skipped_filenames()
     unlabeled_count = 0
     if os.path.exists(IMAGES_DIR):
         for filename in os.listdir(IMAGES_DIR):
-            if is_image_file(filename) and filename not in labeled_files:
+            if is_image_file(filename) and filename not in labeled_files and filename not in skipped_files:
                 unlabeled_count += 1
 
     stats['unlabeled'] = unlabeled_count
