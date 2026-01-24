@@ -13,6 +13,7 @@ from flask import Flask, jsonify, request, send_file, Response, send_from_direct
 from flask_cors import CORS
 from dotenv import load_dotenv
 from database import Database
+from ai_service.ai_predictor import AIPredictor
 
 load_dotenv()
 
@@ -29,7 +30,7 @@ IMAGES_DIR = os.getenv('IMAGES_DIR', './images')
 LABELED_DIR = os.getenv('LABELED_DIR', './labeled')
 DATABASE_PATH = os.getenv('DATABASE_PATH', './labels.db')
 EXPORT_IMAGES_THRESHOLD = int(os.getenv('EXPORT_IMAGES_THRESHOLD', '100'))
-INFERENCE_SERVICE_URL = os.getenv('INFERENCE_SERVICE_URL', 'http://localhost:8000')
+AI_CONFIG_PATH = os.getenv('AI_CONFIG_PATH', './config.yaml')
 
 # 确保目录存在
 os.makedirs(IMAGES_DIR, exist_ok=True)
@@ -41,6 +42,15 @@ db = Database(DATABASE_PATH)
 # 加载预置数据
 data_dir = os.path.join(os.path.dirname(__file__), 'data')
 db.load_preset_data(data_dir)
+
+# 初始化AI预测服务
+try:
+    ai_predictor = AIPredictor(AI_CONFIG_PATH)
+    ai_enabled = True
+except Exception as e:
+    print(f"[WARNING] Failed to initialize AI predictor: {e}")
+    ai_predictor = None
+    ai_enabled = False
 
 # 支持的图片格式
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
@@ -687,6 +697,337 @@ def get_lock_status(filename: str):
             'locked_at': lock_info['locked_at']
         })
     return jsonify({'locked': False})
+
+
+# ==================== AI预测相关 API ====================
+
+@app.route('/api/ai/status', methods=['GET'])
+def get_ai_status():
+    """获取AI服务状态"""
+    if not ai_enabled:
+        return jsonify({
+            'enabled': False,
+            'message': 'AI predictor not initialized'
+        })
+
+    try:
+        config = ai_predictor.get_config()
+        services = {
+            'ocr': ai_predictor.is_enabled('ocr'),
+            'quality': ai_predictor.is_enabled('quality'),
+            'hdbscan': ai_predictor.is_enabled('hdbscan')
+        }
+
+        return jsonify({
+            'enabled': True,
+            'config': config,
+            'services': services
+        })
+    except Exception as e:
+        return jsonify({
+            'enabled': False,
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/ai/predict', methods=['POST'])
+def run_ai_predict():
+    """对指定图片运行AI预测"""
+    if not ai_enabled:
+        return jsonify({'error': 'AI service not enabled'}), 503
+
+    data = request.get_json()
+    filename = data.get('filename')
+
+    if not filename:
+        return jsonify({'error': 'Missing filename parameter'}), 400
+
+    # 检查图片是否存在
+    file_path = os.path.join(IMAGES_DIR, filename)
+    if not os.path.exists(file_path):
+        return jsonify({'error': 'Image not found'}), 404
+
+    try:
+        # 运行预测
+        result = ai_predictor.predict_single(file_path)
+
+        # 保存到数据库
+        db.add_ai_prediction(result)
+
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"[ERROR] AI prediction error: {str(e)}")
+        return jsonify({'error': f'AI prediction failed: {str(e)}'}), 500
+
+
+@app.route('/api/ai/predict-batch', methods=['POST'])
+def run_ai_predict_batch():
+    """批量运行AI预测（用于新图片自动触发）"""
+    if not ai_enabled:
+        return jsonify({'error': 'AI service not enabled'}), 503
+
+    try:
+        # 获取images/文件夹下所有未标注的图片
+        labeled_files = db.get_labeled_original_filenames()
+        skipped_files = db.get_skipped_filenames()
+
+        # 检查哪些图片已有AI预测
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT filename FROM ai_predictions')
+        predicted_files = {row[0] for row in cursor.fetchall()}
+        conn.close()
+
+        # 获取需要预测的图片
+        image_paths = []
+        for filename in os.listdir(IMAGES_DIR):
+            if (is_image_file(filename) and
+                filename not in labeled_files and
+                filename not in skipped_files and
+                filename not in predicted_files):
+                image_paths.append(os.path.join(IMAGES_DIR, filename))
+
+        if not image_paths:
+            return jsonify({
+                'message': 'No new images to predict',
+                'count': 0
+            })
+
+        # 批量预测
+        batch_result = ai_predictor.predict_batch(image_paths, detect_new_classes=True)
+
+        # 保存所有预测结果到数据库
+        for pred in batch_result['predictions']:
+            if 'error' not in pred:
+                db.add_ai_prediction(pred)
+
+        return jsonify({
+            'message': f'AI prediction completed for {len(batch_result["predictions"])} images',
+            'total': len(batch_result['predictions']),
+            'statistics': batch_result['statistics']
+        })
+
+    except Exception as e:
+        print(f"[ERROR] Batch AI prediction error: {str(e)}")
+        return jsonify({'error': f'Batch AI prediction failed: {str(e)}'}), 500
+
+
+@app.route('/api/ai/review/pending', methods=['GET'])
+def get_pending_reviews():
+    """获取待复审的AI预测（按优先级排序）"""
+    if not ai_enabled:
+        return jsonify({'error': 'AI service not enabled'}), 503
+
+    limit = request.args.get('limit', type=int)
+    predictions = db.get_unprocessed_predictions(limit)
+
+    return jsonify({
+        'total': len(predictions),
+        'items': predictions
+    })
+
+
+@app.route('/api/ai/review/auto-approvable', methods=['GET'])
+def get_auto_approvable():
+    """获取可一键通过的AI预测"""
+    if not ai_enabled:
+        return jsonify({'error': 'AI service not enabled'}), 503
+
+    predictions = db.get_auto_approvable_predictions()
+
+    return jsonify({
+        'total': len(predictions),
+        'items': predictions
+    })
+
+
+@app.route('/api/ai/review/approve', methods=['POST'])
+def approve_prediction():
+    """批准AI预测（创建标注）"""
+    if not ai_enabled:
+        return jsonify({'error': 'AI service not enabled'}), 503
+
+    data = request.get_json()
+    filename = data.get('filename')
+    auto_approve = data.get('auto_approve', False)
+
+    if not filename:
+        return jsonify({'error': 'Missing filename parameter'}), 400
+
+    # 获取AI预测结果
+    ai_pred = db.get_ai_prediction(filename)
+    if not ai_pred:
+        return jsonify({'error': 'AI prediction not found'}), 404
+
+    # 检查图片是否存在
+    file_path = os.path.join(IMAGES_DIR, filename)
+    if not os.path.exists(file_path):
+        return jsonify({'error': 'Image not found'}), 404
+
+    try:
+        # 生成新文件名
+        type_id = ai_pred['aircraft_class']
+        seq = db.get_next_sequence(type_id)
+        original_ext = os.path.splitext(filename)[1]
+        new_filename = f"{type_id}-{seq:04d}{original_ext}"
+
+        # 移动并重命名图片
+        dst_path = os.path.join(LABELED_DIR, new_filename)
+        shutil.move(file_path, dst_path)
+
+        # 保存标注
+        label_data = {
+            'file_name': new_filename,
+            'original_file_name': filename,
+            'type_id': ai_pred['aircraft_class'],
+            'type_name': ai_pred['aircraft_class'],  # 暂时用class_name
+            'airline_id': ai_pred['airline_class'],
+            'airline_name': ai_pred['airline_class'],
+            'clarity': ai_pred['clarity'],
+            'block': ai_pred['block'],
+            'registration': ai_pred['registration'] or '',
+            'registration_area': ai_pred['registration_area'] or ''
+        }
+
+        result = db.add_label(label_data)
+
+        # 更新AI预测状态
+        db.mark_prediction_processed(filename)
+
+        # 更新标注的AI相关字段
+        ai_data = {
+            'review_status': 'approved' if auto_approve else 'reviewed',
+            'ai_approved': 1 if auto_approve else 0
+        }
+        db.update_label_with_ai_data(result['id'], ai_data)
+
+        return jsonify({
+            'message': 'Label created successfully',
+            'id': result['id'],
+            'file_name': new_filename
+        })
+
+    except Exception as e:
+        print(f"[ERROR] Approve prediction error: {str(e)}")
+        return jsonify({'error': f'Failed to approve prediction: {str(e)}'}), 500
+
+
+@app.route('/api/ai/review/bulk-approve', methods=['POST'])
+def bulk_approve_predictions():
+    """批量批准AI预测"""
+    if not ai_enabled:
+        return jsonify({'error': 'AI service not enabled'}), 503
+
+    data = request.get_json()
+    filenames = data.get('filenames', [])
+
+    if not filenames:
+        return jsonify({'error': 'No filenames provided'}), 400
+
+    results = []
+    errors = []
+
+    for filename in filenames:
+        try:
+            # 获取AI预测结果
+            ai_pred = db.get_ai_prediction(filename)
+            if not ai_pred:
+                errors.append({'filename': filename, 'error': 'AI prediction not found'})
+                continue
+
+            # 检查图片是否存在
+            file_path = os.path.join(IMAGES_DIR, filename)
+            if not os.path.exists(file_path):
+                errors.append({'filename': filename, 'error': 'Image not found'})
+                continue
+
+            # 生成新文件名
+            type_id = ai_pred['aircraft_class']
+            seq = db.get_next_sequence(type_id)
+            original_ext = os.path.splitext(filename)[1]
+            new_filename = f"{type_id}-{seq:04d}{original_ext}"
+
+            # 移动并重命名图片
+            dst_path = os.path.join(LABELED_DIR, new_filename)
+            shutil.move(file_path, dst_path)
+
+            # 保存标注
+            label_data = {
+                'file_name': new_filename,
+                'original_file_name': filename,
+                'type_id': ai_pred['aircraft_class'],
+                'type_name': ai_pred['aircraft_class'],
+                'airline_id': ai_pred['airline_class'],
+                'airline_name': ai_pred['airline_class'],
+                'clarity': ai_pred['clarity'],
+                'block': ai_pred['block'],
+                'registration': ai_pred['registration'] or '',
+                'registration_area': ai_pred['registration_area'] or ''
+            }
+
+            result = db.add_label(label_data)
+            db.mark_prediction_processed(filename)
+
+            # 更新标注的AI相关字段
+            db.update_label_with_ai_data(result['id'], {
+                'review_status': 'auto_approved',
+                'ai_approved': 1
+            })
+
+            results.append({
+                'filename': filename,
+                'id': result['id'],
+                'file_name': new_filename
+            })
+
+        except Exception as e:
+            errors.append({'filename': filename, 'error': str(e)})
+
+    return jsonify({
+        'message': f'Bulk approve completed: {len(results)} succeeded, {len(errors)} failed',
+        'success_count': len(results),
+        'failed_count': len(errors),
+        'results': results,
+        'errors': errors
+    })
+
+
+@app.route('/api/ai/review/reject', methods=['POST'])
+def reject_prediction():
+    """拒绝AI预测"""
+    if not ai_enabled:
+        return jsonify({'error': 'AI service not enabled'}), 503
+
+    data = request.get_json()
+    filename = data.get('filename')
+    skip_as_invalid = data.get('skip_as_invalid', False)
+
+    if not filename:
+        return jsonify({'error': 'Missing filename parameter'}), 400
+
+    try:
+        # 标记预测为已处理
+        db.mark_prediction_processed(filename)
+
+        # 如果选择跳过为废图，也跳过该图片
+        if skip_as_invalid:
+            db.skip_image(filename)
+
+        return jsonify({
+            'message': 'Prediction rejected'
+        })
+
+    except Exception as e:
+        print(f"[ERROR] Reject prediction error: {str(e)}")
+        return jsonify({'error': f'Failed to reject prediction: {str(e)}'}), 500
+
+
+@app.route('/api/ai/stats', methods=['GET'])
+def get_ai_stats():
+    """获取AI复审统计信息"""
+    stats = db.get_review_stats()
+    return jsonify(stats)
 
 # ==================== 前端静态资源服务 ====================
 
