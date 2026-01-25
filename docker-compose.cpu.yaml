@@ -1,5 +1,5 @@
-# AeroVision Label System - Docker Compose (GPU 版本)
-# 使用方法: docker-compose up -d
+# AeroVision Label System - Docker Compose (CPU 版本)
+# 使用方法: docker-compose -f docker-compose.cpu.yaml up -d
 
 version: '3.8'
 
@@ -9,10 +9,9 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        DEVICE: gpu
-        CUDA_VERSION: "12.6"
-    image: aerovision-label:gpu
-    container_name: aerovision-label
+        DEVICE: cpu
+    image: aerovision-label:cpu
+    container_name: aerovision-label-cpu
 
     ports:
       - "${FLASK_PORT:-5000}:5000"
@@ -31,26 +30,26 @@ services:
       - LABELED_DIR=/app/labeled
       - DATABASE_PATH=/app/data/labels.db
       - AI_CONFIG_PATH=/app/config.yaml
+      # CPU 线程限制
       - OMP_NUM_THREADS=${CPU_THREADS:-4}
       - MKL_NUM_THREADS=${CPU_THREADS:-4}
       - OPENBLAS_NUM_THREADS=${CPU_THREADS:-4}
+      - NUMEXPR_NUM_THREADS=${CPU_THREADS:-4}
       - TORCH_NUM_THREADS=${CPU_THREADS:-4}
       - CPU_NUM=${CPU_THREADS:-4}
+      # 禁用 CUDA
+      - CUDA_VISIBLE_DEVICES=""
 
-    # GPU 支持
-    runtime: nvidia
     deploy:
       resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
         limits:
           cpus: '${CPU_LIMIT:-4.0}'
           memory: ${MEMORY_LIMIT:-8G}
+        reservations:
+          cpus: '1.0'
+          memory: 2G
 
-    shm_size: '2gb'
+    shm_size: '1gb'
     restart: unless-stopped
 
     logging:
@@ -64,7 +63,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 120s
+      start_period: 180s
 
     networks:
       - aerovision-network

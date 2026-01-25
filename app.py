@@ -62,15 +62,65 @@ def is_image_file(filename: str) -> bool:
     return ext in IMAGE_EXTENSIONS
 
 
+def run_startup_ai_prediction():
+    """启动时对未标注图片进行 AI 预测"""
+    if not ai_enabled or ai_predictor is None:
+        print("[INFO] AI predictor not enabled, skipping startup prediction")
+        return
+
+    try:
+        # 获取已标注和已跳过的文件
+        labeled_files = db.get_labeled_original_filenames()
+        skipped_files = db.get_skipped_filenames()
+
+        # 获取已有 AI 预测的文件
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT filename FROM ai_predictions')
+        predicted_files = {row[0] for row in cursor.fetchall()}
+        conn.close()
+
+        # 找出需要预测的图片
+        image_paths = []
+        if os.path.exists(IMAGES_DIR):
+            for filename in os.listdir(IMAGES_DIR):
+                if (is_image_file(filename) and
+                    filename not in labeled_files and
+                    filename not in skipped_files and
+                    filename not in predicted_files):
+                    image_paths.append(os.path.join(IMAGES_DIR, filename))
+
+        if not image_paths:
+            print("[INFO] No new images to predict at startup")
+            return
+
+        print(f"[INFO] Starting AI prediction for {len(image_paths)} images...")
+
+        # 批量预测
+        batch_result = ai_predictor.predict_batch(image_paths, detect_new_classes=True)
+
+        # 保存预测结果到数据库
+        success_count = 0
+        for pred in batch_result['predictions']:
+            if 'error' not in pred:
+                db.add_ai_prediction(pred)
+                success_count += 1
+
+        print(f"[INFO] Startup AI prediction completed: {success_count}/{len(image_paths)} succeeded")
+        print(f"[INFO] Statistics: {batch_result['statistics']}")
+
+    except Exception as e:
+        print(f"[ERROR] Startup AI prediction failed: {e}")
+
+
 # ==================== 图片相关 API ====================
 
 @app.route('/api/images', methods=['GET'])
 def get_images():
-    """获取待标注图片列表（排除已标注的、被跳过的和被他人锁定的）"""
+    """获取待标注图片列表（包含 AI 预测结果）"""
     user_id = request.args.get('user_id', '')
     labeled_files = db.get_labeled_original_filenames()
     skipped_files = db.get_skipped_filenames()
-    locked_files = db.get_locked_filenames()
 
     images = []
     if os.path.exists(IMAGES_DIR):
@@ -80,12 +130,34 @@ def get_images():
                 lock_info = db.get_lock_info(filename)
                 is_locked_by_others = lock_info and lock_info['user_id'] != user_id
 
-                images.append({
+                # 获取 AI 预测结果
+                ai_prediction = db.get_ai_prediction(filename)
+
+                image_info = {
                     'filename': filename,
                     'path': f'/api/images/{filename}',
                     'locked': is_locked_by_others,
-                    'locked_by': lock_info['user_id'] if is_locked_by_others else None
-                })
+                    'locked_by': lock_info['user_id'] if is_locked_by_others else None,
+                    'has_ai_prediction': ai_prediction is not None
+                }
+
+                # 如果有 AI 预测，添加预测信息
+                if ai_prediction:
+                    image_info['ai_prediction'] = {
+                        'aircraft_class': ai_prediction['aircraft_class'],
+                        'aircraft_confidence': ai_prediction['aircraft_confidence'],
+                        'airline_class': ai_prediction['airline_class'],
+                        'airline_confidence': ai_prediction['airline_confidence'],
+                        'registration': ai_prediction['registration'],
+                        'registration_area': ai_prediction['registration_area'],
+                        'registration_confidence': ai_prediction['registration_confidence'],
+                        'clarity': ai_prediction['clarity'],
+                        'block': ai_prediction['block'],
+                        'is_new_class': ai_prediction['is_new_class'],
+                        'quality_pass': ai_prediction.get('quality_pass', True)
+                    }
+
+                images.append(image_info)
 
     # 按文件名排序
     images.sort(key=lambda x: x['filename'])
@@ -1041,6 +1113,9 @@ def serve_frontend(path):
         return send_from_directory(app.static_folder, 'index.html')
 
 if __name__ == '__main__':
+    # 启动时运行 AI 预测
+    run_startup_ai_prediction()
+
     port = int(os.getenv('FLASK_PORT', 5000))
     debug = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
     app.run(host='0.0.0.0', port=port, debug=debug)

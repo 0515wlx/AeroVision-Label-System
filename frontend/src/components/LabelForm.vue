@@ -2,16 +2,24 @@
   <form class="label-form" @submit.prevent="handleSubmit">
     <h3>标注信息</h3>
 
-    <!-- 模型预测展示 - 机型 -->
-    <div v-if="modelPrediction.type" class="model-prediction">
-      <label>模型预测（机型）</label>
+    <!-- AI 预测提示 -->
+    <div v-if="aiPrediction" class="ai-prediction-banner">
+      <span class="ai-badge">AI 预测</span>
+      <span v-if="aiPrediction.is_new_class" class="new-class-badge">可能是新类别</span>
+    </div>
+
+    <!-- AI 预测展示 - 机型 -->
+    <div v-if="aiPrediction" class="model-prediction">
+      <label>AI 预测（机型）</label>
       <div class="prediction-card">
         <div class="top1">
-          <span class="class-name">{{ modelPrediction.type.top1.class }}</span>
-          <span class="confidence">{{ (modelPrediction.type.top1.confidence * 100).toFixed(1) }}%</span>
+          <span class="class-name">{{ aiPrediction.aircraft_class }}</span>
+          <span class="confidence" :class="getConfidenceClass(aiPrediction.aircraft_confidence)">
+            {{ (aiPrediction.aircraft_confidence * 100).toFixed(1) }}%
+          </span>
         </div>
-        <div v-if="modelPrediction.type.top1.confidence < 0.7" class="warning">
-          ⚠️ 置信度较低，请仔细确认
+        <div v-if="aiPrediction.aircraft_confidence < 0.8" class="warning">
+          置信度较低，请仔细确认
         </div>
         <label class="checkbox-label">
           <input
@@ -24,16 +32,42 @@
       </div>
     </div>
 
-    <!-- 模型预测展示 - 注册号（OCR） -->
-    <div v-if="modelPrediction.ocr && modelPrediction.ocr.text" class="model-prediction">
-      <label>OCR识别（注册号）</label>
+    <!-- AI 预测展示 - 航司 -->
+    <div v-if="aiPrediction" class="model-prediction">
+      <label>AI 预测（航司）</label>
+      <div class="prediction-card">
+        <div class="top1">
+          <span class="class-name">{{ aiPrediction.airline_class }}</span>
+          <span class="confidence" :class="getConfidenceClass(aiPrediction.airline_confidence)">
+            {{ (aiPrediction.airline_confidence * 100).toFixed(1) }}%
+          </span>
+        </div>
+        <div v-if="aiPrediction.airline_confidence < 0.8" class="warning">
+          置信度较低，请仔细确认
+        </div>
+        <label class="checkbox-label">
+          <input
+            type="checkbox"
+            v-model="useModelAirline"
+            @change="onUseModelAirlineChange"
+          />
+          使用预测结果
+        </label>
+      </div>
+    </div>
+
+    <!-- AI 预测展示 - 注册号（OCR） -->
+    <div v-if="aiPrediction && aiPrediction.registration" class="model-prediction">
+      <label>AI 识别（注册号）</label>
       <div class="prediction-card">
         <div class="ocr-result">
-          <span class="text">{{ modelPrediction.ocr.text }}</span>
-          <span class="confidence">{{ (modelPrediction.ocr.confidence * 100).toFixed(1) }}%</span>
+          <span class="text">{{ aiPrediction.registration }}</span>
+          <span class="confidence" :class="getConfidenceClass(aiPrediction.registration_confidence)">
+            {{ (aiPrediction.registration_confidence * 100).toFixed(1) }}%
+          </span>
         </div>
-        <div v-if="modelPrediction.ocr.confidence < 0.7" class="warning">
-          ⚠️ 识别置信度较低，请仔细确认
+        <div v-if="aiPrediction.registration_confidence < 0.7" class="warning">
+          识别置信度较低，请仔细确认
         </div>
         <label class="checkbox-label">
           <input
@@ -42,6 +76,27 @@
             @change="onUseModelOcrChange"
           />
           使用识别结果
+        </label>
+      </div>
+    </div>
+
+    <!-- AI 预测展示 - 质量评估 -->
+    <div v-if="aiPrediction" class="model-prediction quality-prediction">
+      <label>AI 质量评估</label>
+      <div class="prediction-card">
+        <div class="quality-row">
+          <span>清晰度:</span>
+          <span class="quality-value">{{ (aiPrediction.clarity * 100).toFixed(0) }}%</span>
+          <span>遮挡度:</span>
+          <span class="quality-value">{{ (aiPrediction.block * 100).toFixed(0) }}%</span>
+        </div>
+        <label class="checkbox-label">
+          <input
+            type="checkbox"
+            v-model="useModelQuality"
+            @change="onUseModelQualityChange"
+          />
+          使用质量评估
         </label>
       </div>
     </div>
@@ -169,31 +224,31 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { getAirlines, getAircraftTypes, createAirline, createAircraftType, predictImage, ocrImage } from '../api'
+import { getAirlines, getAircraftTypes, createAirline, createAircraftType } from '../api'
 
 const props = defineProps({
   registrationArea: String,
   initialData: Object,
-  currentImage: Object  // 新增：当前图片信息
+  currentImage: Object  // 包含 ai_prediction 字段
 })
 
-const emit = defineEmits(['submit', 'skip', 'skipAsInvalid', 'fetchPrediction'])
+const emit = defineEmits(['submit', 'skip', 'skipAsInvalid'])
 
 const airlines = ref([])
 const aircraftTypes = ref([])
 const loading = ref(false)
 const error = ref('')
 
-// 模型预测数据
-const modelPrediction = ref({
-  type: null,  // YOLOv8-cls 预测结果
-  ocr: null    // PaddleOCR 识别结果
+// AI 预测数据（从 currentImage 中获取）
+const aiPrediction = computed(() => {
+  return props.currentImage?.ai_prediction || null
 })
 
 // 是否使用模型预测
 const useModelType = ref(false)
 const useModelAirline = ref(false)
 const useModelOcr = ref(false)
+const useModelQuality = ref(false)
 
 const form = ref({
   airlineId: '',
@@ -213,6 +268,13 @@ const newAirline = ref({ code: '', name: '' })
 const showNewType = ref(false)
 const newType = ref({ code: '', name: '' })
 
+// 置信度样式
+const getConfidenceClass = (confidence) => {
+  if (confidence >= 0.95) return 'high'
+  if (confidence >= 0.8) return 'medium'
+  return 'low'
+}
+
 // 表单验证
 const isValid = computed(() => {
   return (
@@ -223,57 +285,76 @@ const isValid = computed(() => {
   )
 })
 
-// 获取模型预测
-const fetchModelPrediction = async (imagePath) => {
-  if (!imagePath) return
-
-  try {
-    // 调用后端预测接口
-    const typeRes = await predictImage({ image_path: imagePath })
-    if (typeRes.data) {
-      modelPrediction.value.type = typeRes.data
-    }
-
-    // 调用后端OCR接口
-    const ocrRes = await ocrImage({ image_path: imagePath })
-    if (ocrRes.data) {
-      modelPrediction.value.ocr = ocrRes.data
-    }
-  } catch (e) {
-    console.error('获取模型预测失败:', e)
-  }
-}
-
-// 监听当前图片变化，自动获取预测
+// 监听当前图片变化，重置使用状态
 watch(() => props.currentImage, (newImage) => {
-  if (newImage && newImage.filename) {
-    // 重置状态
-    modelPrediction.value = { type: null, ocr: null }
+  if (newImage) {
+    // 重置使用状态
     useModelType.value = false
     useModelAirline.value = false
     useModelOcr.value = false
+    useModelQuality.value = false
 
-    // 获取预测
-    fetchModelPrediction(newImage.filename)
+    // 如果有 AI 预测且置信度高，自动勾选
+    const pred = newImage.ai_prediction
+    if (pred) {
+      if (pred.aircraft_confidence >= 0.95) {
+        useModelType.value = true
+        form.value.typeId = pred.aircraft_class
+        form.value.typeName = pred.aircraft_class
+      }
+      if (pred.airline_confidence >= 0.95) {
+        useModelAirline.value = true
+        form.value.airlineId = pred.airline_class
+        form.value.airlineName = pred.airline_class
+      }
+      if (pred.registration && pred.registration_confidence >= 0.9) {
+        useModelOcr.value = true
+        form.value.registration = pred.registration
+      }
+      // 默认使用 AI 质量评估
+      useModelQuality.value = true
+      form.value.clarity = pred.clarity
+      form.value.block = pred.block
+    }
   }
 }, { immediate: true })
 
 // 使用模型预测切换事件
 const onUseModelTypeChange = () => {
-  if (useModelType.value && modelPrediction.value.type) {
-    form.value.typeId = modelPrediction.value.type.top1.class
-    form.value.typeName = modelPrediction.value.type.top1.class
+  if (useModelType.value && aiPrediction.value) {
+    form.value.typeId = aiPrediction.value.aircraft_class
+    form.value.typeName = aiPrediction.value.aircraft_class
   } else {
     form.value.typeId = ''
     form.value.typeName = ''
   }
 }
 
+const onUseModelAirlineChange = () => {
+  if (useModelAirline.value && aiPrediction.value) {
+    form.value.airlineId = aiPrediction.value.airline_class
+    form.value.airlineName = aiPrediction.value.airline_class
+  } else {
+    form.value.airlineId = ''
+    form.value.airlineName = ''
+  }
+}
+
 const onUseModelOcrChange = () => {
-  if (useModelOcr.value && modelPrediction.value.ocr) {
-    form.value.registration = modelPrediction.value.ocr.text
+  if (useModelOcr.value && aiPrediction.value) {
+    form.value.registration = aiPrediction.value.registration
   } else {
     form.value.registration = ''
+  }
+}
+
+const onUseModelQualityChange = () => {
+  if (useModelQuality.value && aiPrediction.value) {
+    form.value.clarity = aiPrediction.value.clarity
+    form.value.block = aiPrediction.value.block
+  } else {
+    form.value.clarity = 0.8
+    form.value.block = 0
   }
 }
 
@@ -376,11 +457,11 @@ const handleSubmit = async () => {
       clarity: form.value.clarity,
       block: form.value.block,
       registration_area: props.registrationArea,
-      // 模型预测信息
-      model_prediction_type: modelPrediction.value.type?.top1?.class || null,
-      model_prediction_airline: null,  // 暂不支持航司预测
-      model_confidence: modelPrediction.value.type?.top1?.confidence || null,
-      model_ocr_text: modelPrediction.value.ocr?.text || null,
+      // AI 预测信息
+      model_prediction_type: aiPrediction.value?.aircraft_class || null,
+      model_prediction_airline: aiPrediction.value?.airline_class || null,
+      model_confidence: aiPrediction.value?.aircraft_confidence || null,
+      model_ocr_text: aiPrediction.value?.registration || null,
       // 是否使用模型预测
       use_model_type: useModelType.value,
       use_model_airline: useModelAirline.value,
@@ -416,10 +497,10 @@ const reset = () => {
     block: 0
   }
   error.value = ''
-  modelPrediction.value = { type: null, ocr: null }
   useModelType.value = false
   useModelAirline.value = false
   useModelOcr.value = false
+  useModelQuality.value = false
 }
 
 // 监听初始数据
@@ -458,8 +539,137 @@ onMounted(() => {
   font-size: 18px;
 }
 
+/* AI 预测横幅 */
+.ai-prediction-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #1a3a5c 0%, #2d1a4a 100%);
+  border-radius: 6px;
+  border: 1px solid #3a5a8c;
+}
+
+.ai-badge {
+  padding: 4px 8px;
+  background: #4a90d9;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #fff;
+}
+
+.new-class-badge {
+  padding: 4px 8px;
+  background: #ff9800;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #000;
+}
+
+/* 模型预测卡片 */
+.model-prediction {
+  margin-bottom: 16px;
+}
+
+.model-prediction > label {
+  display: block;
+  margin-bottom: 6px;
+  color: #aaa;
+  font-size: 14px;
+}
+
+.prediction-card {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.prediction-card .top1,
+.prediction-card .ocr-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.prediction-card .class-name,
+.prediction-card .text {
+  font-size: 16px;
+  font-weight: bold;
+  color: #fff;
+}
+
+.prediction-card .confidence {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.prediction-card .confidence.high {
+  background: #2d5a2d;
+  color: #8fdf8f;
+}
+
+.prediction-card .confidence.medium {
+  background: #5a5a2d;
+  color: #dfdf8f;
+}
+
+.prediction-card .confidence.low {
+  background: #5a2d2d;
+  color: #df8f8f;
+}
+
+.prediction-card .warning {
+  padding: 6px 10px;
+  background: #3a2a1a;
+  border-radius: 4px;
+  color: #ff9800;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.prediction-card .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #aaa;
+  font-size: 13px;
+}
+
+.prediction-card .checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* 质量评估 */
+.quality-prediction .quality-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: #aaa;
+  font-size: 14px;
+}
+
+.quality-prediction .quality-value {
+  font-weight: bold;
+  color: #4a90d9;
+}
+
 .form-group {
   margin-bottom: 16px;
+}
+
+.form-group.disabled {
+  opacity: 0.5;
 }
 
 .form-group label {

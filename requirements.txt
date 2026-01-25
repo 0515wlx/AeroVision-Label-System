@@ -1,15 +1,23 @@
+# AeroVision Label System - Base Dependencies
+# 不包含 PyTorch 和 PaddlePaddle，由 requirements.cpu.txt 或 requirements.gpu.txt 安装
+
+# Web 框架
 flask>=2.3.0
 flask-cors>=4.0.0
-python-dotenv>=1.0.0
 gunicorn>=21.0.0
+
+# 配置和工具
+python-dotenv>=1.0.0
 pyyaml>=6.0.0
+
+# 图像处理
 numpy>=1.24.0
-opencv-python>=4.8.0
+opencv-python-headless>=4.8.0
 pillow>=10.0.0
-paddleocr>=2.7.0
-paddlepaddle>=2.6.0
+
+# AI 推理 - YOLO
 ultralytics>=8.0.0
-torch>=2.0.0
-torchvision>=0.15.0
+
+# 聚类算法
 hdbscan>=0.8.0
-zhipuai>=2.0.0
+scikit-learn>=1.3.0

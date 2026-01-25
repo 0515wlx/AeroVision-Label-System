@@ -1,6 +1,7 @@
 """
 OCR服务模块
 使用PaddleOCR识别注册号
+支持 PaddleOCR 3.x API
 """
 
 import logging
@@ -8,19 +9,6 @@ import re
 from typing import Dict, Any, Optional
 import numpy as np
 from PIL import Image
-
-# 延迟导入PaddleOCR以避免初始化问题
-_PaddleOCR = None
-
-
-def get_paddleocr():
-    """延迟导入PaddleOCR"""
-    global _PaddleOCR
-    if _PaddleOCR is None:
-        from paddleocr import PaddleOCR
-        _PaddleOCR = PaddleOCR
-    return _PaddleOCR
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -43,21 +31,30 @@ class RegistrationOCR:
         """
         self.lang = config.get('lang', 'ch')
         self.use_angle_cls = config.get('use_angle_cls', True)
+        self.use_gpu = config.get('use_gpu', True)
         self.enabled = config.get('enabled', True)
+        self.ocr = None
+        self.use_new_api = False  # 是否使用 PaddleOCR 3.x 新 API
 
         if not self.enabled:
             logger.info("OCR is disabled")
-            self.ocr = None
             return
 
+        self._init_ocr()
+
+    def _init_ocr(self):
+        """初始化 PaddleOCR"""
+        # 尝试使用 PaddleOCR 3.x 新 API
         try:
-            PaddleOCR = get_paddleocr()
+            from paddleocr import PaddleOCR
             self.ocr = PaddleOCR(
                 use_angle_cls=self.use_angle_cls,
                 lang=self.lang,
+                use_gpu=self.use_gpu,
                 show_log=False
             )
-            logger.info(f"PaddleOCR initialized (lang={self.lang})")
+            self.use_new_api = False
+            logger.info(f"PaddleOCR initialized (lang={self.lang}, gpu={self.use_gpu})")
         except Exception as e:
             logger.error(f"Failed to initialize PaddleOCR: {e}")
             self.ocr = None
@@ -88,7 +85,7 @@ class RegistrationOCR:
             img_width, img_height = image.size
 
             # OCR识别
-            ocr_results = self.ocr.ocr(img_array, cls=True)
+            ocr_results = self.ocr.ocr(img_array, cls=self.use_angle_cls)
 
             if not ocr_results or not ocr_results[0]:
                 return {
@@ -213,7 +210,7 @@ class RegistrationOCR:
             if paddle.is_compiled_with_cuda():
                 paddle.device.cuda.empty_cache()
                 logger.info("Paddle CUDA cache cleared")
-        except ImportError:
+        except Exception:
             pass
 
     def __del__(self):

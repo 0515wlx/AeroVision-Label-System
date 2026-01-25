@@ -1,0 +1,17 @@
+# AeroVision Label System - CPU Version Dependencies
+# 安装方式: pip install -r requirements.cpu.txt
+
+# 基础依赖
+-r requirements.txt
+
+# PyTorch CPU 版本 (阿里云镜像)
+--find-links https://mirrors.aliyun.com/pytorch-wheels/cpu/
+torch==2.9.1
+torchvision==0.24.1
+
+# PaddlePaddle CPU 版本 (官方源)
+--extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
+paddlepaddle==3.2.0
+
+# PaddleOCR 3.x (需要 PaddlePaddle >= 3.0)
+paddleocr>=3.0.0

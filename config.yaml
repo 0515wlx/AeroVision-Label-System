@@ -3,12 +3,12 @@
 # Model paths (can be absolute or relative paths)
 models:
   aircraft:
-    path: /home/wlx/yolo26x-cls-aircraft.pt
-    device: cuda
+    path: /app/models/yolo-cls-aircraft.pt
+    device: cuda  # cuda 或 cpu
     image_size: 640
   airline:
-    path: /home/wlx/yolo26x-cls-airline.pt
-    device: cuda
+    path: /app/models/yolo-cls-airline.pt
+    device: cuda  # cuda 或 cpu
     image_size: 640
 
 # OCR configuration
@@ -16,13 +16,16 @@ ocr:
   enabled: true
   lang: en
   use_angle_cls: true
+  use_gpu: true  # PaddleOCR GPU 开关
 
-# Quality assessment configuration
-quality_assessor:
-  enabled: true
-  api_key: "bb065240b67b4e5a948dc2d6595fdb0e.La2oyUHrBtztpuZ8"  # Set via environment variable GLM_API_KEY
-  api_url: "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-  model: "glm-4.6v"
+# Quality assessment configuration (CV-based algorithm)
+quality:
+  sharpness_weight: 0.3
+  exposure_weight: 0.2
+  composition_weight: 0.15
+  noise_weight: 0.2
+  color_weight: 0.15
+  pass_threshold: 0.6
 
 # Confidence thresholds
 thresholds:
@@ -41,13 +44,20 @@ hdbscan:
 # Auto-annotation settings
 auto_annotate:
   enabled: true
-  auto_trigger: true         # Automatically run AI prediction on new images
+  auto_trigger: true         # Automatically run AI prediction on startup
   batch_size: 32
   num_workers: 4
 
 # Review settings
 review:
-  # Push order: new classes first (by outlier score desc), then existing classes (by confidence asc)
   push_order: "confidence_desc"
-  # Review status values: 'pending', 'approved', 'rejected', 'auto_approved'
   auto_approve_threshold: 0.95
+
+# Performance settings
+performance:
+  # CPU 线程数限制（仅 CPU 推理时生效）
+  cpu_threads: 4
+  # 批量推理大小
+  batch_size: 16
+  # 是否在启动时预加载模型
+  preload_models: true

@@ -11,7 +11,7 @@ import yaml
 
 from .predictor import ModelPredictor
 from .ocr_service import RegistrationOCR
-from .quality_service import QualityAssessor
+from .quality import ImageQualityAssessor
 from .hdbscan_service import HDBSCANNewClassDetector
 
 logging.basicConfig(level=logging.INFO)
@@ -34,7 +34,7 @@ class AIPredictor:
         # 初始化子模块
         self.predictor = ModelPredictor(self.config['models'])
         self.ocr = RegistrationOCR(self.config.get('ocr', {}))
-        self.quality = QualityAssessor(self.config.get('quality_assessor', {}))
+        self.quality = ImageQualityAssessor(self.config.get('quality', {}))
         self.hdbscan = HDBSCANNewClassDetector(self.config.get('hdbscan', {}))
 
         # 模型已加载标志
@@ -99,10 +99,17 @@ class AIPredictor:
         # 2. OCR识别
         ocr_result = self.ocr.recognize(image_path)
 
-        # 3. 质量评估
+        # 3. 质量评估（使用 CV 算法）
         quality_result = self.quality.assess(image_path)
 
         prediction_time = time.time() - start_time
+
+        # 从质量评估结果中提取 clarity 和 block
+        # clarity = sharpness, block = 1 - composition (构图差表示可能有遮挡)
+        quality_details = quality_result.get('details', {})
+        clarity = quality_details.get('sharpness', quality_result.get('score', 0.8))
+        # block 使用 1 - 综合分数，分数越低遮挡越严重
+        block = 1.0 - quality_result.get('score', 0.8)
 
         # 组合结果
         result = {
@@ -114,9 +121,10 @@ class AIPredictor:
             'registration': ocr_result['registration'],
             'registration_area': ocr_result.get('registration_area', ''),
             'registration_confidence': ocr_result['confidence'],
-            'clarity': quality_result['clarity'],
-            'block': quality_result['block'],
-            'quality_confidence': quality_result['confidence'],
+            'clarity': round(clarity, 4),
+            'block': round(block, 4),
+            'quality_score': quality_result.get('score', 0.0),
+            'quality_pass': quality_result.get('pass', False),
             'prediction_time': prediction_time,
             'classification_details': {
                 'aircraft': aircraft_pred,
@@ -218,14 +226,17 @@ class AIPredictor:
         检查特定服务是否启用
 
         Args:
-            service: 服务名称 ('ocr', 'quality', 'hdbscan')
+            service: 服务名称 ('ocr', 'hdbscan')
 
         Returns:
             是否启用
         """
+        if service == 'quality':
+            # ImageQualityAssessor 总是启用的
+            return True
+
         service_map = {
             'ocr': self.ocr,
-            'quality': self.quality,
             'hdbscan': self.hdbscan
         }
 
