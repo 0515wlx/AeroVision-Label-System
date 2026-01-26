@@ -102,16 +102,22 @@ class AIPredictor:
         # 3. 质量评估（使用 CV 算法）
         quality_result = self.quality.assess(image_path)
 
+        # 4. 从 detection 模型获取 registration_area（检测到的文本区域）
+        registration_area = ''
+        detection_result = classification_result.get('detection')
+        if detection_result and detection_result.get('enabled') and detection_result.get('boxes'):
+            # 假设第一个检测框是注册号区域，或选择置信度最高的框
+            boxes = detection_result['boxes']
+            if boxes:
+                best_box = max(boxes, key=lambda x: x['confidence'])
+                # 使用归一化坐标 xywhn: [x_center, y_center, width, height]
+                if best_box.get('xywhn'):
+                    xywhn = best_box['xywhn']
+                    registration_area = f"{xywhn[0]:.6f} {xywhn[1]:.6f} {xywhn[2]:.6f} {xywhn[3]:.6f}"
+
         prediction_time = time.time() - start_time
 
-        # 从质量评估结果中提取 clarity 和 block
-        # clarity = sharpness, block = 1 - composition (构图差表示可能有遮挡)
-        quality_details = quality_result.get('details', {})
-        clarity = quality_details.get('sharpness', quality_result.get('score', 0.8))
-        # block 使用 1 - 综合分数，分数越低遮挡越严重
-        block = 1.0 - quality_result.get('score', 0.8)
-
-        # 组合结果
+        # 简化返回结果
         result = {
             'filename': Path(image_path).name,
             'aircraft_class': aircraft_pred['class_name'],
@@ -119,26 +125,10 @@ class AIPredictor:
             'airline_class': airline_pred['class_name'],
             'airline_confidence': airline_pred['confidence'],
             'registration': ocr_result['registration'],
-            'registration_area': ocr_result.get('registration_area', ''),
-            'registration_confidence': ocr_result['confidence'],
-            'clarity': round(clarity, 4),
-            'block': round(block, 4),
+            'registration_area': registration_area,
             'quality_score': quality_result.get('score', 0.0),
-            'quality_pass': quality_result.get('pass', False),
-            'prediction_time': prediction_time,
-            'classification_details': {
-                'aircraft': aircraft_pred,
-                'airline': airline_pred
-            },
-            'ocr_details': ocr_result,
-            'quality_details': quality_result
+            'prediction_time': prediction_time
         }
-
-        # 添加检测结果
-        detection_result = classification_result.get('detection')
-        if detection_result:
-            result['detection'] = detection_result
-            result['detection_details'] = detection_result
 
         return result
 

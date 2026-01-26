@@ -1,0 +1,119 @@
+# AeroVision Label System - Docker Compose
+# 使用方法: docker-compose -f docker-compose.with-ocr.yaml up -d
+#
+# 说明:
+# - 适用于已有外部 OCR API 服务的场景
+# - 通过环境变量 OCR_API_URL 配置 OCR API 地址
+# - 支持 host.docker.internal 访问宿主机服务
+#
+# 前置要求:
+# 1. 确保外部 OCR API 服务已启动（例如在宿主机的 8000 端口）
+# 2. 配置 .env 文件或环境变量指定 OCR_API_URL
+#
+# 示例 .env 配置:
+# OCR_API_URL=http://host.docker.internal:8000/v2/models/ocr/infer
+# 或使用其他 OCR API 服务:
+# OCR_API_URL=http://192.168.1.100:8000/v2/models/ocr/infer
+
+version: '3.8'
+
+services:
+  # AeroVision 主服务
+  aerovision:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DEVICE: gpu
+    image: aerovision-label:gpu
+    container_name: aerovision-label
+    
+    ports:
+      - "${FLASK_PORT:-5000}:5000"
+    
+    volumes:
+      - ${IMAGES_DIR:-./images}:/app/images
+      - ${LABELED_DIR:-./labeled}:/app/labeled
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+      - ${MODELS_DIR:-./models}:/app/models:ro
+    
+    environment:
+      # Flask 配置
+      - FLASK_ENV=production
+      - FLASK_PORT=5000
+      # 目录配置
+      - IMAGES_DIR=/app/images
+      - LABELED_DIR=/app/labeled
+      - DATABASE_PATH=/app/data/labels.db
+      - AI_CONFIG_PATH=/app/config.yaml
+      # OCR API 地址（从 .env 文件读取，必须配置）
+      - OCR_API_URL=${OCR_API_URL:-http://host.docker.internal:8000/v2/models/ocr/infer}
+      # CPU 线程配置
+      - OMP_NUM_THREADS=${CPU_THREADS:-4}
+      - MKL_NUM_THREADS=${CPU_THREADS:-4}
+      - OPENBLAS_NUM_THREADS=${CPU_THREADS:-4}
+      - TORCH_NUM_THREADS=${CPU_THREADS:-4}
+    
+    # GPU 支持
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          cpus: '${CPU_LIMIT:-4.0}'
+          memory: ${MEMORY_LIMIT:-8G}
+    
+    shm_size: '2gb'
+    restart: unless-stopped
+
+    # 添加宿主机地址映射（支持访问宿主机服务，如 OCR API）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+    
+    networks:
+      - aerovision-network
+
+networks:
+  aerovision-network:
+    driver: bridge
+
+# 使用说明:
+#
+# 1. 确保外部 OCR API 服务已启动
+#    例如在宿主机运行: docker run -d --gpus all -p 8000:8000 paddlepaddle/paddlex:3.0.0-gpu-cuda12.3 ...
+#
+# 2. 配置 OCR API 地址（三种方式之一）：
+#    方式 A - 使用 .env 文件:
+#      创建 .env 文件: echo "OCR_API_URL=http://host.docker.internal:8000/v2/models/ocr/infer" > .env
+#    方式 B - 使用环境变量:
+#      export OCR_API_URL=http://192.168.1.100:8000/v2/models/ocr/infer
+#    方式 C - 修改 config.yaml:
+#      ocr:
+#        api_url: "http://host.docker.internal:8000/v2/models/ocr/infer"
+#
+# 3. 启动服务: docker-compose -f docker-compose.with-ocr.yaml up -d
+# 4. 查看日志: docker-compose -f docker-compose.with-ocr.yaml logs -f
+# 5. 停止服务: docker-compose -f docker-compose.with-ocr.yaml down
+#
+# 注意:
+# - host.docker.internal 用于从容器访问宿主机服务 (Docker Desktop 自动支持)
+# - Linux 系统需要添加 extra_hosts 配置或使用宿主机 IP 地址
+# - 确保防火墙允许容器访问 OCR API 端口

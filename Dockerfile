@@ -32,6 +32,8 @@ ENV PYTHONUNBUFFERED=1 \
     LABELED_DIR=/app/labeled \
     DATABASE_PATH=/app/data/labels.db \
     AI_CONFIG_PATH=/app/config.yaml \
+    # OCR API 地址（默认值，可通过 docker-compose 覆盖）
+    OCR_API_URL=http://localhost:8000/v2/models/ocr/infer \
     # CPU 推理线程限制
     OMP_NUM_THREADS=4 \
     MKL_NUM_THREADS=4 \
@@ -90,20 +92,15 @@ RUN if [ "$DEVICE" = "gpu" ]; then \
             -f https://mirrors.aliyun.com/pytorch-wheels/cpu/; \
     fi
 
-# 安装 PaddlePaddle（根据 DEVICE 选择版本，使用官方源）
-RUN if [ "$DEVICE" = "gpu" ]; then \
-        echo "Installing PaddlePaddle GPU (CUDA 12.6)..." && \
-        pip install --no-cache-dir paddlepaddle-gpu==3.2.0 \
-            -i https://www.paddlepaddle.org.cn/packages/stable/cu126/; \
-    else \
-        echo "Installing PaddlePaddle CPU..." && \
-        pip install --no-cache-dir paddlepaddle==3.2.0 \
-            -i https://www.paddlepaddle.org.cn/packages/stable/cpu/; \
-    fi
+# 注意: PaddlePaddle 和 PaddleOCR 已移除
+# OCR 功能通过外部 API 调用实现
+# 配置方式:
+#   1. 环境变量: OCR_API_URL=http://host.docker.internal:8000/v2/models/ocr/infer
+#   2. docker-compose.yaml 中的 environment 配置
+#   3. .env 文件
 
 # 安装其他依赖
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir "paddleocr>=3.0.0"
+RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
 COPY app.py .

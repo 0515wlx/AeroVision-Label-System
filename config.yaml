@@ -16,13 +16,14 @@ models:
     image_size: 640
     conf_threshold: 0.25  # 置信度阈值
     iou_threshold: 0.45   # NMS IOU阈值
+    # 注意: detection 模型用于检测图片中的注册号文本区域，
+    # 检测结果的 xywhn 坐标将作为 registration_area 返回
 
 # OCR configuration
+# 注意: OCR API 地址通过环境变量 OCR_API_URL 配置（见 .env 文件）
 ocr:
   enabled: true
-  lang: en
-  use_angle_cls: true
-  use_gpu: true  # PaddleOCR GPU 开关
+  timeout: 30
 
 # Quality assessment configuration (CV-based algorithm)
 quality:
@@ -67,3 +68,8 @@ performance:
   batch_size: 16
   # 是否在启动时预加载模型
   preload_models: true
+  
+ocr:
+  enabled: true
+  api_url: "http://localhost:8000/v2/models/ocr/infer"
+  timeout: 30

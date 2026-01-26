@@ -10,9 +10,6 @@
 torch==2.9.1
 torchvision==0.24.1
 
-# PaddlePaddle GPU 版本 (CUDA 12.6, 官方源)
---extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu126/
-paddlepaddle-gpu==3.2.0
-
-# PaddleOCR 3.x (需要 PaddlePaddle >= 3.0)
-paddleocr>=3.0.0
+# 注意: PaddlePaddle 和 PaddleOCR 已移除
+# OCR 功能现在通过外部 API 调用实现 (http://localhost:8000/v2/models/ocr/infer)
+# 如需使用本地 PaddleOCR，请参考旧版本配置

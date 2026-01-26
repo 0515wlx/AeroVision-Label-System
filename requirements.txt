@@ -6,6 +6,9 @@ flask>=2.3.0
 flask-cors>=4.0.0
 gunicorn>=21.0.0
 
+# HTTP 请求
+requests>=2.31.0
+
 # 配置和工具
 python-dotenv>=1.0.0
 pyyaml>=6.0.0
