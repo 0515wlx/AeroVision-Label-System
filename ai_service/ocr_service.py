@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # 注册号正则表达式
 REGISTRATION_PATTERN = re.compile(
-    r"\b([A-Z]{1,2})[- ]?([A-HJ-NP-Z0-9][A-HJ-NP-Z0-9]{0,4})\b"
+    r"\b([A-Z]{1,2})[- ]?([A-HJ-NP-Z0-9][A-HJ-NP-Z0-9]{0,5})\b"
 )
 
 
