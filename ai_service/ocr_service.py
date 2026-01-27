@@ -99,11 +99,15 @@ class RegistrationOCR:
             # 优先按名称找到名为 output 的输出
             output_obj = None
             for out in outputs:
-                if out.get('name') == 'output':
+                if isinstance(out, dict) and out.get('name') == 'output':
                     output_obj = out
                     break
             if output_obj is None and outputs:
                 output_obj = outputs[0]
+            
+            if not output_obj:
+                logger.error(f"No 'output' found in OCR API response. outputs: {outputs}")
+                return None
 
             data_list = output_obj.get('data') or []
             if not data_list:
@@ -141,10 +145,14 @@ class RegistrationOCR:
 
             # 有些后端会把 JSON 再次转义，需要尝试多次反序列化
             parsed: Any = text
-            for _ in range(2):
+            for attempt in range(2):
                 try:
                     parsed = json.loads(parsed)
-                except Exception:
+                except json.JSONDecodeError as je:
+                    logger.warning(f"JSON parse attempt {attempt} failed at char {je.pos}: {je.msg}")
+                    break
+                except Exception as e:
+                    logger.warning(f"Unexpected error in JSON parsing: {e}")
                     break
                 # 如果仍是字符串且看起来像 JSON，则再解一层
                 if isinstance(parsed, str) and (parsed.strip().startswith('{') or parsed.strip().startswith('[')):
@@ -161,6 +169,7 @@ class RegistrationOCR:
                 logger.error("OCR output JSON is not an object")
                 return None
 
+            logger.debug(f"Successfully parsed OCR response with keys: {list(parsed.keys())}")
             return parsed
 
         except FileNotFoundError as e:
@@ -169,8 +178,14 @@ class RegistrationOCR:
         except requests.exceptions.RequestException as e:
             logger.error(f"OCR API request failed: {e}")
             return None
-        except (json.JSONDecodeError, KeyError, IndexError) as e:
-            logger.error(f"Failed to parse OCR API response: {e}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse OCR JSON response: {e} (char {e.pos}, line {e.lineno})")
+            return None
+        except (KeyError, IndexError) as e:
+            logger.error(f"Unexpected OCR response structure: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error in _call_ocr_api: {e}", exc_info=True)
             return None
 
     def recognize(self, image_path: str) -> Dict[str, Any]:
@@ -200,6 +215,7 @@ class RegistrationOCR:
             # 调用 OCR API
             ocr_data = self._call_ocr_api(image_path)
             if not ocr_data:
+                logger.warning(f"OCR API returned no data for {image_path}")
                 return {
                     "registration": "",
                     "confidence": 0.0,
@@ -208,9 +224,53 @@ class RegistrationOCR:
                     "yolo_boxes": []
                 }
 
-            # 解析 OCR 结果
+            # 检查ocr_data是否是有效的字典
+            if not isinstance(ocr_data, dict):
+                logger.error(f"OCR API returned invalid type: {type(ocr_data)}, expected dict")
+                return {
+                    "registration": "",
+                    "confidence": 0.0,
+                    "raw_text": "",
+                    "all_matches": [],
+                    "yolo_boxes": []
+                }
+
+            # 解析 OCR 结果（支持多种响应格式）
             try:
-                pruned_result = ocr_data['result']['ocrResults'][0]['prunedResult']
+                # 调试：打印收到的数据结构
+                logger.debug(f"OCR data keys: {list(ocr_data.keys()) if isinstance(ocr_data, dict) else type(ocr_data)}")
+                
+                # 尝试多种路径
+                pruned_result = None
+                
+                # 路径1: result.ocrResults[0].prunedResult
+                if isinstance(ocr_data, dict) and 'result' in ocr_data:
+                    result_obj = ocr_data['result']
+                    if isinstance(result_obj, dict):
+                        ocr_results = result_obj.get('ocrResults', [])
+                        if isinstance(ocr_results, list) and len(ocr_results) > 0:
+                            first_result = ocr_results[0]
+                            if isinstance(first_result, dict) and 'prunedResult' in first_result:
+                                pruned_result = first_result['prunedResult']
+                
+                # 路径2: 直接 ocrResults[0].prunedResult
+                if not pruned_result and isinstance(ocr_data, dict) and 'ocrResults' in ocr_data:
+                    ocr_results = ocr_data['ocrResults']
+                    if isinstance(ocr_results, list) and len(ocr_results) > 0:
+                        first_result = ocr_results[0]
+                        if isinstance(first_result, dict) and 'prunedResult' in first_result:
+                            pruned_result = first_result['prunedResult']
+                
+                if not pruned_result:
+                    logger.error(f"Cannot find prunedResult in OCR data. Available keys: {list(ocr_data.keys()) if isinstance(ocr_data, dict) else f'not a dict, type={type(ocr_data)}'}")
+                    return {
+                        "registration": "",
+                        "confidence": 0.0,
+                        "raw_text": "",
+                        "all_matches": [],
+                        "yolo_boxes": []
+                    }
+                
                 rec_texts = pruned_result.get('rec_texts', [])
                 rec_scores = pruned_result.get('rec_scores', [])
                 rec_boxes = pruned_result.get('rec_boxes', [])
@@ -218,14 +278,21 @@ class RegistrationOCR:
                 if (not rec_boxes) and pruned_result.get('rec_polys'):
                     rec_boxes = []
                     for poly in pruned_result['rec_polys']:
-                        # poly: [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
-                        xs = [p[0] for p in poly]
-                        ys = [p[1] for p in poly]
-                        xmin, xmax = min(xs), max(xs)
-                        ymin, ymax = min(ys), max(ys)
-                        rec_boxes.append([xmin, ymin, xmax, ymax])
+                        try:
+                            # poly: [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+                            if isinstance(poly, list) and len(poly) >= 2:
+                                xs = [p[0] for p in poly if isinstance(p, (list, tuple)) and len(p) >= 2]
+                                ys = [p[1] for p in poly if isinstance(p, (list, tuple)) and len(p) >= 2]
+                                if xs and ys:
+                                    xmin, xmax = min(xs), max(xs)
+                                    ymin, ymax = min(ys), max(ys)
+                                    rec_boxes.append([xmin, ymin, xmax, ymax])
+                        except (TypeError, ValueError, IndexError) as e:
+                            logger.warning(f"Failed to convert poly to box: {poly}, error: {e}")
+                            continue
 
                 if not rec_texts:
+                    logger.info(f"OCR returned no text for {image_path}")
                     return {
                         "registration": "",
                         "confidence": 0.0,
@@ -234,8 +301,8 @@ class RegistrationOCR:
                         "yolo_boxes": []
                     }
 
-            except (KeyError, IndexError) as e:
-                logger.error(f"Failed to parse OCR results: {e}")
+            except (KeyError, IndexError, TypeError, AttributeError) as e:
+                logger.error(f"Failed to parse OCR results: {e}, OCR data keys: {list(ocr_data.keys()) if isinstance(ocr_data, dict) else f'not a dict, type={type(ocr_data)}'}")
                 return {
                     "registration": "",
                     "confidence": 0.0,
@@ -297,7 +364,7 @@ class RegistrationOCR:
             }
 
         except Exception as e:
-            logger.error(f"OCR recognition error: {e}")
+            logger.error(f"OCR recognition error: {e}", exc_info=True)
             return {
                 "registration": "",
                 "confidence": 0.0,
