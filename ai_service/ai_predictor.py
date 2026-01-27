@@ -154,14 +154,22 @@ class AIPredictor:
         Returns:
             包含所有预测结果和新类别检测结果的字典
         """
+        logger.info(f"predict_batch called with {len(image_paths)} images, models_loaded={self._models_loaded}")
+        
         if not self._models_loaded:
-            self.load_models()
+            logger.info("Models not loaded, loading now...")
+            try:
+                self.load_models()
+            except Exception as e:
+                logger.error(f"Failed to load models: {e}")
+                raise
 
         logger.info(f"Predicting batch of {len(image_paths)} images...")
 
         predictions = []
         for i, image_path in enumerate(image_paths):
             try:
+                logger.info(f"Processing image {i+1}/{len(image_paths)}: {image_path}")
                 result = self.predict_single(image_path)
                 predictions.append(result)
                 if (i + 1) % 10 == 0:

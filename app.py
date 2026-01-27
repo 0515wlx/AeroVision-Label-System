@@ -64,14 +64,20 @@ def is_image_file(filename: str) -> bool:
 
 def run_startup_ai_prediction():
     """启动时对未标注图片进行 AI 预测"""
+    print(f"[DEBUG] run_startup_ai_prediction called | ai_enabled={ai_enabled} | ai_predictor={ai_predictor}")
+    
     if not ai_enabled or ai_predictor is None:
         print("[INFO] AI predictor not enabled, skipping startup prediction")
         return
 
     try:
+        print("[DEBUG] Starting to collect images for prediction...")
         # 获取已标注和已跳过的文件
         labeled_files = db.get_labeled_original_filenames()
+        print(f"[DEBUG] Labeled files count: {len(labeled_files)}")
+        
         skipped_files = db.get_skipped_filenames()
+        print(f"[DEBUG] Skipped files count: {len(skipped_files)}")
 
         # 获取已有 AI 预测的文件
         conn = db.get_connection()
@@ -79,16 +85,32 @@ def run_startup_ai_prediction():
         cursor.execute('SELECT filename FROM ai_predictions')
         predicted_files = {row[0] for row in cursor.fetchall()}
         conn.close()
+        print(f"[DEBUG] Already predicted files count: {len(predicted_files)}")
 
         # 找出需要预测的图片
         image_paths = []
+        print(f"[DEBUG] IMAGES_DIR exists: {os.path.exists(IMAGES_DIR)}")
+        print(f"[DEBUG] IMAGES_DIR: {IMAGES_DIR}")
+        
         if os.path.exists(IMAGES_DIR):
-            for filename in os.listdir(IMAGES_DIR):
-                if (is_image_file(filename) and
-                    filename not in labeled_files and
-                    filename not in skipped_files and
-                    filename not in predicted_files):
-                    image_paths.append(os.path.join(IMAGES_DIR, filename))
+            all_files = os.listdir(IMAGES_DIR)
+            print(f"[DEBUG] Total files in IMAGES_DIR: {len(all_files)}")
+            print(f"[DEBUG] Files in IMAGES_DIR: {all_files[:10]}")  # 显示前10个
+            
+            for filename in all_files:
+                is_img = is_image_file(filename)
+                not_labeled = filename not in labeled_files
+                not_skipped = filename not in skipped_files
+                not_predicted = filename not in predicted_files
+                
+                if not (is_img and not_labeled and not_skipped and not_predicted):
+                    print(f"[DEBUG] Skipping {filename}: is_img={is_img}, not_labeled={not_labeled}, not_skipped={not_skipped}, not_predicted={not_predicted}")
+                    continue
+                    
+                image_paths.append(os.path.join(IMAGES_DIR, filename))
+
+        print(f"[DEBUG] Found {len(image_paths)} images to predict")
+        print(f"[DEBUG] Image paths: {image_paths[:5]}")  # 显示前5个
 
         if not image_paths:
             print("[INFO] No new images to predict at startup")
@@ -97,20 +119,27 @@ def run_startup_ai_prediction():
         print(f"[INFO] Starting AI prediction for {len(image_paths)} images...")
 
         # 批量预测
+        print("[DEBUG] Calling ai_predictor.predict_batch()...")
         batch_result = ai_predictor.predict_batch(image_paths, detect_new_classes=True)
+        print(f"[DEBUG] predict_batch returned, predictions count: {len(batch_result['predictions'])}")
 
         # 保存预测结果到数据库
         success_count = 0
         for pred in batch_result['predictions']:
             if 'error' not in pred:
+                print(f"[DEBUG] Adding prediction for {pred.get('filename')}")
                 db.add_ai_prediction(pred)
                 success_count += 1
+            else:
+                print(f"[DEBUG] Skipping prediction with error for {pred.get('filename')}: {pred.get('error')}")
 
         print(f"[INFO] Startup AI prediction completed: {success_count}/{len(image_paths)} succeeded")
         print(f"[INFO] Statistics: {batch_result['statistics']}")
 
     except Exception as e:
+        import traceback
         print(f"[ERROR] Startup AI prediction failed: {e}")
+        print(f"[ERROR] Traceback: {traceback.format_exc()}")
 
 
 # ==================== 图片相关 API ====================
