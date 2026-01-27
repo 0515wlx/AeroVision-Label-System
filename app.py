@@ -8,6 +8,8 @@ import shutil
 import zipfile
 import requests
 import base64
+import logging
+import traceback
 from io import StringIO, BytesIO
 from flask import Flask, jsonify, request, send_file, Response, send_from_directory
 from flask_cors import CORS
@@ -16,6 +18,13 @@ from database import Database
 from ai_service.ai_predictor import AIPredictor
 
 load_dotenv()
+
+# 配置日志
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(
     __name__,
@@ -48,7 +57,8 @@ try:
     ai_predictor = AIPredictor(AI_CONFIG_PATH)
     ai_enabled = True
 except Exception as e:
-    print(f"[WARNING] Failed to initialize AI predictor: {e}")
+    logger.warning(f"Failed to initialize AI predictor: {e}")
+    logger.warning(traceback.format_exc())
     ai_predictor = None
     ai_enabled = False
 
@@ -64,20 +74,25 @@ def is_image_file(filename: str) -> bool:
 
 def run_startup_ai_prediction():
     """启动时对未标注图片进行 AI 预测"""
-    print(f"[DEBUG] run_startup_ai_prediction called | ai_enabled={ai_enabled} | ai_predictor={ai_predictor}")
+    logger.info("="*60)
+    logger.info("run_startup_ai_prediction START")
+    logger.info(f"ai_enabled={ai_enabled}, ai_predictor={ai_predictor}")
+    logger.info(f"IMAGES_DIR={IMAGES_DIR}")
+    logger.info(f"IMAGES_DIR exists: {os.path.exists(IMAGES_DIR)}")
+    logger.info("="*60)
     
     if not ai_enabled or ai_predictor is None:
-        print("[INFO] AI predictor not enabled, skipping startup prediction")
+        logger.info("AI predictor not enabled, skipping startup prediction")
         return
 
     try:
-        print("[DEBUG] Starting to collect images for prediction...")
+        logger.info("Starting to collect images for prediction...")
         # 获取已标注和已跳过的文件
         labeled_files = db.get_labeled_original_filenames()
-        print(f"[DEBUG] Labeled files count: {len(labeled_files)}")
+        logger.info(f"Labeled files: {len(labeled_files)}")
         
         skipped_files = db.get_skipped_filenames()
-        print(f"[DEBUG] Skipped files count: {len(skipped_files)}")
+        logger.info(f"Skipped files: {len(skipped_files)}")
 
         # 获取已有 AI 预测的文件
         conn = db.get_connection()
@@ -85,17 +100,15 @@ def run_startup_ai_prediction():
         cursor.execute('SELECT filename FROM ai_predictions')
         predicted_files = {row[0] for row in cursor.fetchall()}
         conn.close()
-        print(f"[DEBUG] Already predicted files count: {len(predicted_files)}")
+        logger.info(f"Already predicted files: {len(predicted_files)}")
 
         # 找出需要预测的图片
         image_paths = []
-        print(f"[DEBUG] IMAGES_DIR exists: {os.path.exists(IMAGES_DIR)}")
-        print(f"[DEBUG] IMAGES_DIR: {IMAGES_DIR}")
+        logger.info(f"IMAGES_DIR exists check: {os.path.exists(IMAGES_DIR)}")
         
         if os.path.exists(IMAGES_DIR):
             all_files = os.listdir(IMAGES_DIR)
-            print(f"[DEBUG] Total files in IMAGES_DIR: {len(all_files)}")
-            print(f"[DEBUG] Files in IMAGES_DIR: {all_files[:10]}")  # 显示前10个
+            logger.info(f"Total files in IMAGES_DIR: {len(all_files)}")
             
             for filename in all_files:
                 is_img = is_image_file(filename)
@@ -103,43 +116,34 @@ def run_startup_ai_prediction():
                 not_skipped = filename not in skipped_files
                 not_predicted = filename not in predicted_files
                 
-                if not (is_img and not_labeled and not_skipped and not_predicted):
-                    print(f"[DEBUG] Skipping {filename}: is_img={is_img}, not_labeled={not_labeled}, not_skipped={not_skipped}, not_predicted={not_predicted}")
-                    continue
-                    
-                image_paths.append(os.path.join(IMAGES_DIR, filename))
+                if is_img and not_labeled and not_skipped and not_predicted:
+                    image_paths.append(os.path.join(IMAGES_DIR, filename))
 
-        print(f"[DEBUG] Found {len(image_paths)} images to predict")
-        print(f"[DEBUG] Image paths: {image_paths[:5]}")  # 显示前5个
+        logger.info(f"Found {len(image_paths)} images to predict")
 
         if not image_paths:
-            print("[INFO] No new images to predict at startup")
+            logger.info("No new images to predict at startup")
             return
 
-        print(f"[INFO] Starting AI prediction for {len(image_paths)} images...")
+        logger.info(f"Starting AI prediction for {len(image_paths)} images...")
 
         # 批量预测
-        print("[DEBUG] Calling ai_predictor.predict_batch()...")
         batch_result = ai_predictor.predict_batch(image_paths, detect_new_classes=True)
-        print(f"[DEBUG] predict_batch returned, predictions count: {len(batch_result['predictions'])}")
+        logger.info(f"predict_batch returned with {len(batch_result['predictions'])} results")
 
         # 保存预测结果到数据库
         success_count = 0
         for pred in batch_result['predictions']:
             if 'error' not in pred:
-                print(f"[DEBUG] Adding prediction for {pred.get('filename')}")
                 db.add_ai_prediction(pred)
                 success_count += 1
-            else:
-                print(f"[DEBUG] Skipping prediction with error for {pred.get('filename')}: {pred.get('error')}")
 
-        print(f"[INFO] Startup AI prediction completed: {success_count}/{len(image_paths)} succeeded")
-        print(f"[INFO] Statistics: {batch_result['statistics']}")
+        logger.info(f"Startup AI prediction: {success_count}/{len(image_paths)} succeeded")
+        logger.info(f"Statistics: {batch_result['statistics']}")
 
     except Exception as e:
-        import traceback
-        print(f"[ERROR] Startup AI prediction failed: {e}")
-        print(f"[ERROR] Traceback: {traceback.format_exc()}")
+        logger.error(f"Startup AI prediction FAILED: {e}")
+        logger.error(traceback.format_exc())
 
 
 # ==================== 图片相关 API ====================
@@ -231,11 +235,11 @@ def predict_image():
             response.raise_for_status()
             return jsonify(response.json())
         except requests.RequestException as e:
-            print(f'[ERROR] 推理服务调用失败: {str(e)}')
+            logger.error(f'推理服务调用失败: {str(e)}')
             return jsonify({'error': f'推理服务调用失败: {str(e)}'}), 503
 
     except Exception as e:
-        print(f'[ERROR] 预测错误: {str(e)}')
+        logger.error(f'预测错误: {str(e)}')
         return jsonify({'error': f'预测错误: {str(e)}'}), 500
 
 
@@ -272,11 +276,11 @@ def ocr_image():
             response.raise_for_status()
             return jsonify(response.json())
         except requests.RequestException as e:
-            print(f'[ERROR] OCR服务调用失败: {str(e)}')
+            logger.error(f'OCR服务调用失败: {str(e)}')
             return jsonify({'error': f'OCR服务调用失败: {str(e)}'}), 503
 
     except Exception as e:
-        print(f'[ERROR] OCR错误: {str(e)}')
+        logger.error(f'OCR错误: {str(e)}')
         return jsonify({'error': f'OCR错误: {str(e)}'}), 500
 
 
@@ -327,7 +331,7 @@ def skip_image_handler():
             # 图片已经被标记过，这也是成功的操作
             return jsonify({'message': '图片已标记为废图', 'filename': filename, 'already_skipped': True})
     except Exception as e:
-        print(f"[ERROR] Skip image error: {str(e)}")
+        logger.error(f"Skip image error: {str(e)}")
         return jsonify({'error': f'服务器错误: {str(e)}'}), 500
 
 
@@ -607,7 +611,7 @@ def export_images():
 
     # 如果有缺失的文件，记录警告
     if missing_files:
-        print(f"警告: 以下文件未找到: {', '.join(missing_files)}")
+        logger.warning(f"以下文件未找到: {', '.join(missing_files)}")
 
     zip_buffer.seek(0)
 
@@ -853,7 +857,7 @@ def run_ai_predict():
         return jsonify(result)
 
     except Exception as e:
-        print(f"[ERROR] AI prediction error: {str(e)}")
+        logger.error(f"AI prediction error: {str(e)}")
         return jsonify({'error': f'AI prediction failed: {str(e)}'}), 500
 
 
@@ -905,7 +909,7 @@ def run_ai_predict_batch():
         })
 
     except Exception as e:
-        print(f"[ERROR] Batch AI prediction error: {str(e)}")
+        logger.error(f"Batch AI prediction error: {str(e)}")
         return jsonify({'error': f'Batch AI prediction failed: {str(e)}'}), 500
 
 
@@ -1005,7 +1009,7 @@ def approve_prediction():
         })
 
     except Exception as e:
-        print(f"[ERROR] Approve prediction error: {str(e)}")
+        logger.error(f"Approve prediction error: {str(e)}")
         return jsonify({'error': f'Failed to approve prediction: {str(e)}'}), 500
 
 
@@ -1115,7 +1119,7 @@ def reject_prediction():
         })
 
     except Exception as e:
-        print(f"[ERROR] Reject prediction error: {str(e)}")
+        logger.error(f"Reject prediction error: {str(e)}")
         return jsonify({'error': f'Failed to reject prediction: {str(e)}'}), 500
 
 

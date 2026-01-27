@@ -92,52 +92,71 @@ class AIPredictor:
         filename = Path(image_path).name
         logger.info(f"Predicting image: {filename}")
 
-        # 1. 分类预测（机型和航司）
-        classification_result = self.predictor.predict(image_path)
+        try:
+            # 1. 分类预测（机型和航司）
+            logger.debug(f"Starting classification for {filename}")
+            classification_result = self.predictor.predict(image_path)
+            logger.debug(f"Classification result: {classification_result}")
 
-        aircraft_pred = classification_result['aircraft']
-        airline_pred = classification_result['airline']
+            aircraft_pred = classification_result['aircraft']
+            airline_pred = classification_result['airline']
 
-        # 2. OCR识别
-        ocr_result = self.ocr.recognize(image_path)
+            # 2. OCR识别
+            logger.debug(f"Starting OCR recognition for {filename}")
+            ocr_result = self.ocr.recognize(image_path)
+            logger.debug(f"OCR result: {ocr_result}")
 
-        # 3. 质量评估（使用 CV 算法）
-        quality_result = self.quality.assess(image_path)
+            # 3. 质量评估（使用 CV 算法）
+            logger.debug(f"Starting quality assessment for {filename}")
+            quality_result = self.quality.assess(image_path)
+            logger.debug(f"Quality result: {quality_result}")
 
-        # 4. 从 detection 模型获取 registration_area（检测到的文本区域）
-        registration_area = ''
-        detection_result = classification_result.get('detection')
-        if detection_result and detection_result.get('enabled') and detection_result.get('boxes'):
-            # 假设第一个检测框是注册号区域，或选择置信度最高的框
-            boxes = detection_result['boxes']
-            if boxes:
-                best_box = max(boxes, key=lambda x: x['confidence'])
-                # 使用归一化坐标 xywhn: [x_center, y_center, width, height]
-                if best_box.get('xywhn'):
-                    xywhn = best_box['xywhn']
-                    registration_area = f"{xywhn[0]:.6f} {xywhn[1]:.6f} {xywhn[2]:.6f} {xywhn[3]:.6f}"
+            # 4. 从 detection 模型获取 registration_area（检测到的文本区域）
+            registration_area = ''
+            detection_result = classification_result.get('detection')
+            if detection_result and detection_result.get('enabled') and detection_result.get('boxes'):
+                logger.debug(f"Processing detection boxes for {filename}")
+                # 假设第一个检测框是注册号区域，或选择置信度最高的框
+                boxes = detection_result['boxes']
+                if boxes:
+                    best_box = max(boxes, key=lambda x: x['confidence'])
+                    # 使用归一化坐标 xywhn: [x_center, y_center, width, height]
+                    if best_box.get('xywhn'):
+                        xywhn = best_box['xywhn']
+                        registration_area = f"{xywhn[0]:.6f} {xywhn[1]:.6f} {xywhn[2]:.6f} {xywhn[3]:.6f}"
+                        logger.debug(f"Registration area extracted: {registration_area}")
 
-        prediction_time = time.time() - start_time
+            prediction_time = time.time() - start_time
 
-        # 简化返回结果
-        result = {
-            'filename': Path(image_path).name,
-            'aircraft_class': aircraft_pred['class_name'],
-            'aircraft_confidence': aircraft_pred['confidence'],
-            'airline_class': airline_pred['class_name'],
-            'airline_confidence': airline_pred['confidence'],
-            'registration': ocr_result['registration'],
-            'registration_area': registration_area,
-            'quality_score': quality_result.get('score', 0.0),
-            'prediction_time': prediction_time
-        }
+            # 简化返回结果
+            result = {
+                'filename': Path(image_path).name,
+                'aircraft_class': aircraft_pred['class_name'],
+                'aircraft_confidence': aircraft_pred['confidence'],
+                'airline_class': airline_pred['class_name'],
+                'airline_confidence': airline_pred['confidence'],
+                'registration': ocr_result['registration'],
+                'registration_area': registration_area,
+                'quality_score': quality_result.get('score', 0.0),
+                'prediction_time': prediction_time
+            }
 
-        logger.info(f"Prediction completed: {filename} | Aircraft: {aircraft_pred['class_name']}({aircraft_pred['confidence']:.3f}) | "
-                    f"Airline: {airline_pred['class_name']}({airline_pred['confidence']:.3f}) | "
-                    f"Registration: {ocr_result['registration']} | Quality: {quality_result.get('score', 0.0):.3f} | "
-                    f"Time: {prediction_time:.2f}s")
+            logger.info(f"Prediction completed: {filename} | Aircraft: {aircraft_pred['class_name']}({aircraft_pred['confidence']:.3f}) | "
+                        f"Airline: {airline_pred['class_name']}({airline_pred['confidence']:.3f}) | "
+                        f"Registration: {ocr_result['registration']} | Quality: {quality_result.get('score', 0.0):.3f} | "
+                        f"Time: {prediction_time:.2f}s")
 
-        return result
+            return result
+        
+        except Exception as e:
+            import traceback
+            logger.error(f"Error predicting {filename}: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # 返回错误标记，这样 predict_batch 会捕获
+            return {
+                'filename': filename,
+                'error': str(e)
+            }
 
     def predict_batch(
         self,
