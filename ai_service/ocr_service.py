@@ -235,6 +235,19 @@ class RegistrationOCR:
                     "yolo_boxes": []
                 }
 
+            # 检查API错误响应
+            if 'errorCode' in ocr_data:
+                error_code = ocr_data.get('errorCode', 'unknown')
+                error_msg = ocr_data.get('errorMsg', 'No error message')
+                logger.error(f"OCR API error for {image_path}: code={error_code}, msg={error_msg}")
+                return {
+                    "registration": "",
+                    "confidence": 0.0,
+                    "raw_text": "",
+                    "all_matches": [],
+                    "yolo_boxes": []
+                }
+
             # 解析 OCR 结果（支持多种响应格式）
             try:
                 # 调试：打印收到的数据结构
