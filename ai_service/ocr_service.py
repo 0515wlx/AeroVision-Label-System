@@ -53,6 +53,20 @@ class RegistrationOCR:
             API 响应数据
         """
         try:
+            # 检测图片格式并读取为 base64
+            with Image.open(image_path) as img:
+                img_format = img.format.lower() if img.format else 'jpeg'
+                # 映射 PIL 格式到 MIME 类型
+                mime_mapping = {
+                    'jpeg': 'image/jpeg',
+                    'jpg': 'image/jpeg',
+                    'png': 'image/png',
+                    'gif': 'image/gif',
+                    'bmp': 'image/bmp',
+                    'webp': 'image/webp'
+                }
+                mime_type = mime_mapping.get(img_format, 'image/jpeg')
+            
             # 读取图片并转换为 base64 编码
             with open(image_path, 'rb') as f:
                 image_bytes = f.read()
@@ -67,7 +81,7 @@ class RegistrationOCR:
                         "datatype": "BYTES",
                         "data": [
                             json.dumps({
-                                "file": f"data:image/jpeg;base64,{image_base64}",
+                                "file": f"data:{mime_type};base64,{image_base64}",
                                 "visualize": False
                             })
                         ]
