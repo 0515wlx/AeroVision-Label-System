@@ -220,7 +220,9 @@ class AIPredictor:
         # 新类别检测
         new_class_indices = []
         if detect_new_classes:
-            new_class_indices = self.hdbscan.detect_new_classes(predictions)
+            # 获取embeddings用于HDBSCAN聚类
+            embeddings = self.predictor.get_embeddings(image_paths)
+            new_class_indices = self.hdbscan.detect_new_classes(predictions, embeddings=embeddings)
 
         # 标记新类别
         for i, idx in enumerate(new_class_indices):

@@ -5,7 +5,7 @@ AI分类器预测服务
 
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 from ultralytics import YOLO
 
 logging.basicConfig(level=logging.INFO)
@@ -241,6 +241,65 @@ class ModelPredictor:
             self._load_detection_model()
         class_names = self.detection_model.model.names
         return [class_names.get(i, f"class_{i}") for i in range(len(class_names))]
+
+    def get_embeddings(self, image_paths: list) -> "np.ndarray":
+        """
+        获取图像的嵌入向量（使用YOLO的embed方法）
+
+        Args:
+            image_paths: 图像文件路径列表
+
+        Returns:
+            numpy数组，shape为(n_samples, embedding_dim)
+        """
+        import numpy as np
+
+        if len(image_paths) == 0:
+            logger.debug("Empty image paths list, returning empty array")
+            return np.array([])
+
+        logger.debug(f"Getting embeddings for {len(image_paths)} images")
+
+        # 使用机型模型获取embeddings
+        # YOLO的embed()返回一个list，每个元素是一个embedding向量
+        embed_results = self.aircraft_model.embed(
+            image_paths,
+            imgsz=self.image_size,
+            device=self.device,
+            verbose=False
+        )
+
+        # embed_results是一个list，每个元素是一个tensor
+        # 需要转换为numpy数组并堆叠
+        embedding_list = []
+        for i, embed_tensor in enumerate(embed_results):
+            try:
+                # 将tensor转换为numpy数组
+                # embed_tensor可能需要先移到CPU
+                if hasattr(embed_tensor, 'cpu'):
+                    embed_array = embed_tensor.cpu().numpy()
+                else:
+                    embed_array = np.array(embed_tensor)
+
+                # 确保是二维的（如果是1维的，需要reshape）
+                if embed_array.ndim == 1:
+                    embed_array = embed_array.reshape(1, -1)
+
+                embedding_list.append(embed_array)
+            except Exception as e:
+                logger.error(f"Error processing embedding for image {i}: {e}")
+                # 添加零向量作为占位符
+                if len(embedding_list) > 0:
+                    embedding_list.append(np.zeros_like(embedding_list[0]))
+                else:
+                    # 如果还没有任何embedding，使用默认的128维零向量
+                    embedding_list.append(np.zeros((1, 128)))
+
+        # 堆叠成二维数组
+        embeddings = np.vstack(embedding_list) if len(embedding_list) > 0 else np.array([])
+
+        logger.info(f"Generated embeddings: shape={embeddings.shape}, dtype={embeddings.dtype}")
+        return embeddings
 
     def unload_models(self):
         """卸载模型并释放内存"""
