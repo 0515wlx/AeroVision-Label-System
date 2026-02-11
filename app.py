@@ -1274,12 +1274,12 @@ def get_training_job(job_id: int):
         result = db.get_training_result(job_id)
 
         # 获取模型版本
-        versions = db.get_model_versions()
+        versions = db.get_model_versions(training_job_id=job_id)
 
         return jsonify({
             'job': job,
             'result': result,
-            'model_versions': [v for v in versions if v['training_job_id'] == job_id]
+            'model_versions': versions
         })
     except Exception as e:
         logger.error(f"Failed to get training job {job_id}: {e}")
