@@ -63,7 +63,7 @@ except Exception as e:
     ai_enabled = False
 
 # 初始化训练管理器（需要指定Aerovision-V1路径）
-AERO_V1_PATH = os.getenv('AERO_V1_PATH', '/home/wlx/Aerovision-V1')
+AERO_V1_PATH = os.getenv('AERO_V1_PATH', './AeroVision-V1')
 TEMP_DIR = os.getenv('TEMP_DIR', './temp_training')
 MODELS_DIR = os.getenv('MODELS_DIR', './models')
 
