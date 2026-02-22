@@ -48,6 +48,11 @@ class Database:
             )
         """)
 
+        # 为labels表的type_id列创建索引，优化查询性能
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_labels_type_id ON labels (type_id)"
+        )
+
         # 检查并添加review_status字段（用于数据库迁移）
         cursor.execute("PRAGMA table_info(labels)")
         columns = [col[1] for col in cursor.fetchall()]

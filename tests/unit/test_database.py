@@ -68,6 +68,21 @@ class TestDatabase:
         for table in required_tables:
             assert table in tables, f"Table {table} not found"
 
+    def test_labels_type_id_index_exists(self, temp_db):
+        """测试labels表type_id列上的索引是否存在"""
+        db, db_path = temp_db
+
+        # 检查索引是否存在
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='labels' AND name='idx_labels_type_id'"
+        )
+        index = cursor.fetchone()
+        conn.close()
+
+        assert index is not None, "Index idx_labels_type_id should exist on labels.type_id column"
+
     def test_add_airline(self, temp_db):
         """测试添加航司"""
         db, db_path = temp_db
