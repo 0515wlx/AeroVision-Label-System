@@ -63,7 +63,7 @@ except Exception as e:
     ai_enabled = False
 
 # 初始化训练管理器（需要指定Aerovision-V1路径）
-AERO_V1_PATH = os.getenv('AERO_V1_PATH', '/home/wlx/Aerovision-V1')
+AERO_V1_PATH = os.getenv('AERO_V1_PATH', './AeroVision-V1')
 TEMP_DIR = os.getenv('TEMP_DIR', './temp_training')
 MODELS_DIR = os.getenv('MODELS_DIR', './models')
 
@@ -1274,12 +1274,12 @@ def get_training_job(job_id: int):
         result = db.get_training_result(job_id)
 
         # 获取模型版本
-        versions = db.get_model_versions()
+        versions = db.get_model_versions(training_job_id=job_id)
 
         return jsonify({
             'job': job,
             'result': result,
-            'model_versions': [v for v in versions if v['training_job_id'] == job_id]
+            'model_versions': versions
         })
     except Exception as e:
         logger.error(f"Failed to get training job {job_id}: {e}")

@@ -292,8 +292,10 @@ class ModelPredictor:
                 if len(embedding_list) > 0:
                     embedding_list.append(np.zeros_like(embedding_list[0]))
                 else:
-                    # 如果还没有任何embedding，使用默认的128维零向量
-                    embedding_list.append(np.zeros((1, 128)))
+                    # If the first embedding fails, we can't determine the dimension.
+                    # It's safer to return an empty array for this batch.
+                    logger.error(f"Failed to process embedding for image {i}; cannot determine embedding dimension.")
+                    return np.array([])
 
         # 堆叠成二维数组
         embeddings = np.vstack(embedding_list) if len(embedding_list) > 0 else np.array([])
